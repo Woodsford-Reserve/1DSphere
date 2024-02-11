@@ -41,25 +41,50 @@ class Mesh:
                 
             
 class Quad:
-    def __init__(self, N_dir):
+    def __init__(self, N_dir, Toggle=False):
         # gauss-legendre quadrature
         self.N_dir = N_dir
-        self.mu,self.w = np.polynomial.legendre.leggauss(N_dir)
+        # Toggles usage of Local Quadrature instead of GL Scheme
+        if N_dir % 4 == 0 and Toggle:
+            # Creates Number of Cells, Weight Value, and Cell Boundaries
+            cellNum = int(N_dir / 2)
+            width = 2 / cellNum
+            weight = 1 / 2 / cellNum
+            cellBounds = [-1]
+            for i in range(cellNum):
+                cellBounds.append(cellBounds[-1] + width)
+
+            # Creates List to contain all collocation points
+            muList = []
+            for i in range(len(cellBounds) - 1):
+                muMinus = (1 - 1/np.sqrt(3)) * width / 2 + cellBounds[i]
+                muPlus = (1 + 1/np.sqrt(3)) * width / 2 + cellBounds[i]
+                muList.append([muMinus, muPlus])
+            self.w = []
+            for i in range(len(cellBounds) - 1):
+                self.w.append(weight)
+                self.w.append(weight)
+            # convert list of list to an array, then flatten along rows.
+            self.mu = np.array(muList).flatten('C')
+
+        else:
+            self.mu, self.w = np.polynomial.legendre.leggauss(N_dir)
+            # mu-cell boundaries and alpha
+            self.mu_half = np.zeros(N_dir+1)
+            self.mu_half[0] = -1.
+            self.alpha = np.zeros(N_dir+1)
+            for nd in range(N_dir):
+                self.mu_half[nd+1] = self.mu_half[nd] + self.w[nd]
+                self.alpha[nd+1] = self.alpha[nd] - 2*self.mu[nd]*self.w[nd]
         
-        # mu-cell boundaries and alpha 
-        self.mu_half = np.zeros(N_dir+1)
-        self.mu_half[0] = -1.
-        self.alpha = np.zeros(N_dir+1)
-        for nd in range(N_dir):
-            self.mu_half[nd+1] = self.mu_half[nd] + self.w[nd]
-            self.alpha[nd+1] = self.alpha[nd] - 2*self.mu[nd]*self.w[nd]
-        
-        # beta
-        self.beta = np.zeros(N_dir)
-        for nd in range(N_dir):
-            self.beta[nd] = (self.mu[nd] - self.mu_half[nd])/\
-                            (self.mu_half[nd+1] - self.mu_half[nd])
-    
+            # beta
+            self.beta = np.zeros(N_dir)
+            for nd in range(N_dir):
+                self.beta[nd] = (self.mu[nd] - self.mu_half[nd])/\
+                                (self.mu_half[nd+1] - self.mu_half[nd])
+            print(self.alpha)
+            print(self.beta)
+
     
     
 class Solve:
@@ -244,6 +269,7 @@ R = np.array([1.,2.])
 I_reg = np.array([40,40])
 N_dir = 8 
 
+"""
 bc = {"type":"source","value":0.}
 
 matprops = {"sigt":np.array([1.0,1.0]),
@@ -252,4 +278,5 @@ matprops = {"sigt":np.array([1.0,1.0]),
 
 sol = Solve(R, I_reg, N_dir, bc, matprops)
 sol.solve()
-sol.plot()
+sol.plot()"""
+Quad(8)
