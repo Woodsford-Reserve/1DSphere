@@ -43,6 +43,7 @@ class Mesh:
 class Quad:
     def __init__(self, N_dir, Toggle=False):
         # gauss-legendre quadrature
+
         self.N_dir = N_dir
         # Toggles usage of Local Quadrature instead of GL Scheme
         if N_dir % 4 == 0 and Toggle:
