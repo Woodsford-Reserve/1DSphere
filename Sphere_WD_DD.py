@@ -39,7 +39,8 @@ class Mesh:
                                                                I_reg[nr])))
    
                 
-            
+
+# quadrature class 
 class Quad:
     def __init__(self, N_dir):
         # gauss-legendre quadrature
@@ -61,7 +62,8 @@ class Quad:
                             (self.mu_half[nd+1] - self.mu_half[nd])
     
     
-    
+
+# solver class    
 class Solve:
     def __init__(self, R, I_reg, N_dir, bc, matprops):
         nmats = len(matprops["sigt"])
@@ -226,7 +228,7 @@ class Solve:
         # leakage
         leak = np.sum(self.quad.mu*self.psi_bound*self.quad.w)*self.mesh.A[-1]
         # balance parameter
-        bal = np.abs(source - (absorp + leak))
+        bal = np.abs(source - (absorp + leak)) / source
         return bal
     
     
