@@ -4,9 +4,9 @@ Created on Thu Jan 18 11:16:48 2024
 
 @author: c.woodsford.9788
 
-Branch Version 1.2
+Branch Version 1.2.3
 Changes:
-    Local quadrature option is now formatted for rest of code
+    Local quadrature now supports non-uniform cells
 """
 
 import numpy as np
@@ -43,7 +43,7 @@ class Mesh:
 
 
 class Quad:
-    def __init__(self, N_dir, Toggle=False):
+    def __init__(self, N_dir, Toggle=False, angularWidths=[]):
         # gauss-legendre quadrature
 
         # Toggles usage of Local Quadrature instead of GL Scheme
@@ -52,22 +52,32 @@ class Quad:
                 raise ValueError("No. of dir. is not doubly divisible by 2!")
             else:
                 self.N_dir = N_dir
+
             # Creates Number of Cells, Weight Value, and Cell Boundaries
             cellNum = int(N_dir / 2)
-            width = 2 / cellNum
-            weight = 1 / cellNum
-            cellBounds = [-1]
-            for i in range(cellNum):
-                cellBounds.append(cellBounds[-1] + width)
+            if len(angularWidths) == 0:
+                width = 2 / cellNum
+                cellBounds = [-1]
+                for i in range(cellNum):
+                    cellBounds.append(cellBounds[-1] + width)
+            else:
+                posAngularCells = angularWidths.copy()
+                posAngularCells.reverse()
+                angularWidths.extend(posAngularCells)
+                cellBounds = [-1]
+                for i in range(len(angularWidths)):
+                    cellBounds.append(cellBounds[-1] + angularWidths[i])
 
             # Creates List to contain all collocation points
             muList = []
             for i in range(len(cellBounds) - 1):
+                width = cellBounds[i + 1] - cellBounds[i]
                 muMinus = (1 - 1 / np.sqrt(3)) * width / 2 + cellBounds[i]
                 muPlus = (1 + 1 / np.sqrt(3)) * width / 2 + cellBounds[i]
                 muList.append([muMinus, muPlus])
             self.w = []
             for i in range(len(cellBounds) - 1):
+                weight = (cellBounds[i + 1] - cellBounds[i]) / 2
                 self.w.append(weight)
                 self.w.append(weight)
             # convert list of list to an array, then flatten along rows.
@@ -97,13 +107,13 @@ class Quad:
 
 
 class Solve:
-    def __init__(self, R, I_reg, N_dir, bc, matprops, localQuad=False):
+    def __init__(self, R, I_reg, N_dir, bc, matprops, localQuad=False, angCellWidths=[]):
         nmats = len(matprops["sigt"])
         matIDs = np.arange(nmats)
 
         # initialization
         self.mesh = Mesh(matIDs, R, I_reg)
-        self.quad = Quad(N_dir, localQuad)
+        self.quad = Quad(N_dir, localQuad, angCellWidths)
         self.bc = bc
         self.matprops = matprops
 
@@ -271,6 +281,9 @@ class Solve:
 R = np.array([1., 2.])
 I_reg = np.array([40, 40])
 N_dir = 8
+# localAngularCellLengths should have length equal to 1/4 * N_dir and should sum to 1
+# Intervals start from -1, and end at 0. Leave empty for uniform cells.
+localAngularCellLengths = [0.75, 0.25]
 
 bc = {"type": "source", "value": 0.}
 
@@ -282,6 +295,6 @@ sol = Solve(R, I_reg, N_dir, bc, matprops)
 sol.solve()
 sol.plot()
 
-sol = Solve(R, I_reg, N_dir, bc, matprops, True)
+sol = Solve(R, I_reg, N_dir, bc, matprops, True, localAngularCellLengths)
 sol.solve()
 sol.plot()
