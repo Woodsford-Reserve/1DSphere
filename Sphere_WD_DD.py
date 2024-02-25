@@ -39,19 +39,32 @@ class Mesh:
                                                                I_reg[nr])))
    
                 
-            
+
+# quadrature class
 class Quad:
     def __init__(self, N_dir):
-        # gauss-legendre quadrature
+        # number of directions
         self.N_dir = N_dir
-        self.mu,self.w = np.polynomial.legendre.leggauss(N_dir)
+        N_cells = int(N_dir/2)
         
-        # mu-cell boundaries and alpha 
-        self.mu_half = np.zeros(N_dir+1)
-        self.mu_half[0] = -1.
-        self.alpha = np.zeros(N_dir+1)
+        # mu-cell midpoints
+        mu_half = np.linspace(-1.,1.,N_cells+1)
+        mu = 0.5*(mu_half[:-1] + mu_half[1:])
+        
+        # local Gauss S2 quadrature
+        self.w = (1./N_cells)*np.ones((N_cells,2))
+        self.mu = np.zeros((N_cells,2))
+        self.mu[:,0] = self.w[:,0]*(-1./np.sqrt(3.)) + mu[:]
+        self.mu[:,1] = self.w[:,1]*(1./np.sqrt(3.)) + mu[:]
+        
+        # quadrature set
+        self.mu = self.mu.flatten()
+        self.w = self.w.flatten()
+        
+        # mu-cell boundaries and alpha
+        self.mu_half = np.linspace(-1.,1.,self.N_dir+1)
+        self.alpha = np.zeros(self.N_dir+1)
         for nd in range(N_dir):
-            self.mu_half[nd+1] = self.mu_half[nd] + self.w[nd]
             self.alpha[nd+1] = self.alpha[nd] - 2*self.mu[nd]*self.w[nd]
         
         # beta
@@ -60,8 +73,9 @@ class Quad:
             self.beta[nd] = (self.mu[nd] - self.mu_half[nd])/\
                             (self.mu_half[nd+1] - self.mu_half[nd])
     
+  
     
-    
+# solver class    
 class Solve:
     def __init__(self, R, I_reg, N_dir, bc, matprops):
         nmats = len(matprops["sigt"])
@@ -78,7 +92,7 @@ class Solve:
     def solve(self):
         # boundary flux 
         self.psi_bound = np.zeros(self.quad.N_dir)
-        self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2         
+        self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.         
         
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
@@ -97,8 +111,7 @@ class Solve:
             
             # sweeps
             for nd in range(self.quad.N_dir):
-                psi, psi_mu = self.sweep(nd, psi_mu, Phi_0)
-                Phi_1 += psi*self.quad.w[nd]
+                Phi_1, psi_mu = self.sweep(nd, psi_mu, Phi_0, Phi_1)
                 
             # calculate error
             if (it == 1):
@@ -125,8 +138,8 @@ class Solve:
     def start(self, Phi):
         # starting direction ingoing flux
         mu0, mu1 = self.quad.mu[0], self.quad.mu[1]
-        psi_in = self.psi_bound[0]*(mu1 + 1)/(mu1 - mu0) - \
-                 self.psi_bound[1]*(mu0 + 1)/(mu1 - mu0)
+        psi_x = self.psi_bound[0]*(mu1 + 1)/(mu1 - mu0) - \
+                self.psi_bound[1]*(mu0 + 1)/(mu1 - mu0)
             
         # starting direction sweep
         psi_mu = np.zeros(self.mesh.I) 
@@ -138,89 +151,77 @@ class Solve:
             sigs  = self.matprops["sigs"][matID]
             q     = self.matprops["q"][matID]
             
-            # calculate outgoing flux
-            psi_out = (sigs*Phi[iel] + q)*dr/2 + (1 - sigt*dr/2)*psi_in
-            psi_out /= (1 + sigt*dr/2)
-            
-            # calculate cell center angular flux
-            psi_mu[iel] = (psi_in + psi_out)/2
+            # calculate cell-average angular flux
+            psi_mu[iel] = psi_x + (sigs*Phi[iel] + q)*dr/4
+            psi_mu[iel] /= (1 + sigt*dr/2)
             
             # update ingoing flux
-            psi_in = psi_out
+            psi_x = 2*psi_mu[iel] - psi_x
             
         # return origin and starting direction angular flux
-        psi_0 = psi_in
+        psi_0 = psi_x
         return psi_0, psi_mu
         
     
     # sweep function
-    def sweep(self, nd, psi_mu, Phi):
+    def sweep(self, nd, psi_mu, Phi_0, Phi_1):
         # direction quantities
         mu      = self.quad.mu[nd]
         w       = self.quad.w[nd]
-        alpha   = self.quad.alpha[nd+1]
+        alpha   = self.quad.alpha[nd:nd+2]
         beta    = self.quad.beta[nd]
         
         # negative-mu sweeps
         if (mu < 0):
             # angular flux at boundary
-            psi_in = self.psi_bound[nd]
+            psi_x = self.psi_bound[nd]
             # sweep order
             start = self.mesh.I-1
-            stop = 0
+            stop = -1
             inc = -1
             
         # positive-mu sweeps
         if (mu > 0):
             # angular flux at origin
-            psi_in = self.psi_0
+            psi_x = self.psi_0
             # sweep order
             start = 0
             stop = self.mesh.I
             inc = 1
         
-        # area IDs
-        id0 = int((1-inc)/2)
-        id1 = int((1+inc)/2)
-        
         # sweep
-        psi = np.zeros(self.mesh.I)
         for iel in range(start, stop, inc):
             # cell properties
             A     = self.mesh.A[iel:iel+2]
+            if (mu < 0):
+                A_out = A[0]
+            if (mu > 0):
+                A_out = A[1]
             V     = self.mesh.V[iel]
             matID = self.mesh.matID[iel]
             sigt  = self.matprops["sigt"][matID]
             sigs  = self.matprops["sigs"][matID]
             q     = self.matprops["q"][matID]
             
-            # cell outgoing flux 
-            psi_out = (sigs*Phi[iel] + q)/2*V + (mu + alpha/(2*beta*w))*(A[1] - A[0])*psi_mu[iel] \
-                    - (-np.abs(mu)*A[id0] + alpha/(4*beta*w)*(A[1] - A[0]) + sigt*V/2)*psi_in     
-            psi_out /= (np.abs(mu)*A[id1] + alpha/(4*beta*w)*(A[1] - A[0]) + sigt*V/2)
+            # calculate cell-average angular flux
+            psi = (sigs*Phi_0[iel] + q)/2*V + np.abs(mu)*(A[1] + A[0])*psi_x \
+                + (A[1] - A[0])/(2*w)*(alpha[1]*(1/beta - 1) + alpha[0])*psi_mu[iel]
+            psi /= (2*np.abs(mu)*A_out + alpha[1]*(A[1] - A[0])/(2*beta*w) + sigt*V)
             
-            # cell angular flux
-            psi[iel] = (psi_in + psi_out)/2
+            # add flux contribution
+            Phi_1[iel] += psi*w
             
             # update ingoing fluxes
-            psi_in = psi_out
-            psi_mu[iel] = (psi[iel] - (1-beta)*psi_mu[iel])/beta
-
-        # negative-mu sweep 
-        if (mu < 0):
-            # first cell angular flux
-            psi[0] = (psi_in + self.psi_0)/2
-            
-            # update first cell ingoing flux
-            psi_mu[0] = (psi[0] - (1-beta)*psi_mu[iel])/beta
+            psi_x = 2*psi - psi_x
+            psi_mu[iel] = (psi - (1-beta)*psi_mu[iel])/beta
         
         # positive-mu sweep
         if (mu > 0):
             # boundary flux
-            self.psi_bound[nd] = psi_out
-            
+            self.psi_bound[nd] = psi_x
+             
         # return angular fluxes
-        return psi, psi_mu
+        return Phi_1, psi_mu
     
     
     # calculate balance parameter
@@ -240,29 +241,29 @@ class Solve:
         # leakage
         leak = np.sum(self.quad.mu*self.psi_bound*self.quad.w)*self.mesh.A[-1]
         # balance parameter
-        bal = np.abs(source - (absorp + leak))
+        bal = np.abs(source - (absorp + leak)) / source
         return bal
     
     
     # plot solution
     def plot(self):
         plt.figure(1)
-        plt.plot(self.mesh.r, self.Phi, 'r')
+        plt.plot(self.mesh.r, self.Phi, 'k--')
         plt.xlabel("r (cm)")
         plt.ylabel("Flux")
         plt.title("1D Spherical Transport Solution (Weighted Diamond-Diamond Difference)")
         
         
     
-R = np.array([1.,2.])
-I_reg = np.array([40,20])
+R = np.array([1.])
+I_reg = np.array([40])
 N_dir = 8 
 
 bc = {"type":"source","value":0.}
 
-matprops = {"sigt":np.array([1.0,1.0]),
-            "sigs":np.array([0.5,0.9]),
-               "q":np.array([1.0,0.0])}
+matprops = {"sigt":np.array([1.0]),
+            "sigs":np.array([0.0]),
+               "q":np.array([1.0])}
 
 sol = Solve(R, I_reg, N_dir, bc, matprops)
 sol.solve()
