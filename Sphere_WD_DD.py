@@ -300,33 +300,125 @@ def LocalGQSolve(N_dir, angCellWidths):
     psiBound = 0
     psiIncoming = psiBound
     Q = 1
-    totalCells = len(rCellCenter)
+    totalSpatialCells = len(rCellCenter)
     psiSpatialCells = []
-    for i in range(totalCells):
+    psiSpatialLeft = []
+    psiSpatialRight = []
+    for i in range(totalSpatialCells):
         # Psi Calculations
-        psiCenter = Q * cellWidths[totalCells - 1 - i] - 2 * psiIncoming
-        psiCenter /= sigT * cellWidths[totalCells - 1 - i] - 2
+        psiSpatialRight.insert(0, psiIncoming)
+        psiCenter = Q * cellWidths[totalSpatialCells - 1 - i] - 2 * psiIncoming
+        psiCenter /= sigT * cellWidths[totalSpatialCells - 1 - i] - 2
         psiSpatialCells.insert(0, psiCenter)
         psiOut = (2 * psiCenter - psiIncoming)
+        psiSpatialLeft.insert(0, psiOut)
         psiIncoming = psiOut
 
     # Area and Volume Elements
     V = []
     ALeft = []
     ARight = []
-    ADiff = []
-    for i in range(totalCells):
+    deltaA = []
+    for i in range(totalSpatialCells):
         V.append(4 * np.pi / 3 * (rCellRight[i] ** 3 - rCellLeft[i] ** 3))
         ALeft.append(4 * np.pi * rCellLeft[i] ** 2)
         ARight.append(4 * np.pi * rCellRight[i] ** 2)
-        ADiff.append(4 * np.pi * (rCellRight[i] ** 2 - rCellLeft[i] ** 2))
+        deltaA.append(4 * np.pi * (rCellRight[i] ** 2 - rCellLeft[i] ** 2))
 
     # Extracts Quadrature Information from process above
     QuadCharacteristics = Quad(N_dir, True, angCellWidths)
+    # Even Indicies refer to mu-, Odd Indicies refer to mu+
+    # Pairs of indicies form a cell
     muList = QuadCharacteristics.mu
+    muWeights = QuadCharacteristics.w
     alphaList = QuadCharacteristics.alpha
     betaList = QuadCharacteristics.beta
 
+    # Begin routine for angular cells
+    psi = []
+    for i in range(totalSpatialCells):
+        psiTemp = []
+        # mu < 0
+        # psiIncoming Cancels out since associated alpha is 0.
+        psiIncoming = 0
+        psiAngularMinus = []
+        psiAngularPlus = []
+        psiAngular = []
+        for j in range(int(len(muList) / 4)):
+            CoefOne = 8 * muWeights[2 * j] * muList[2 * j] * ARight[i]
+            CoefOne += deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+            CoefOne += 4 * muWeights[2 * j] * sigT * V[i]
+
+            CoefTwo = deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+
+            CoefThr = -4 * muWeights[2 * j] * muList[2 * j] * ARight[i] * psiSpatialLeft[i]
+            CoefThr += -4 * muWeights[2 * j] * muList[2 * j] * ALeft[i] * psiSpatialLeft[i]
+            CoefThr += -2 * deltaA[i] * alphaList[2 * j] * psiIncoming - Q * V[i]
+
+            CoefFor = 2 * deltaA[i] * alphaList[2 * j + 1] * betaList[2 * j]
+            CoefFor += deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+
+            CoefFiv = 8 * muWeights[2 * j + 1] * muList[2 * j + 1] * ARight[i]
+            CoefFiv += 2 * deltaA[i] * alphaList[2 * j + 1] * betaList[2 * j + 1]
+            CoefFiv += -1 * deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+            CoefFiv += 4 * muWeights[2 * j + 1] * sigT * V[i]
+
+            CoefSix = -4 * ARight[i] * muWeights[2 * j + 1] * muList[2 * j + 1] * psiSpatialRight[i]
+            CoefSix += -4 * ALeft[i] * muWeights[2 * j + 1] * muList[2 * j + 1] * psiSpatialRight[i]
+            CoefSix += -1 * Q * V[i]
+
+            psiPlus = (CoefOne * CoefSix - CoefThr * CoefFor) / (CoefTwo * CoefFor - CoefOne * CoefFiv)
+            psiMinus = (CoefTwo * CoefSix - CoefThr * CoefFiv) / (CoefTwo * CoefFor - CoefOne * CoefFiv)
+            psiCenter = (psiPlus + psiMinus) / 2
+            psiAngularPlus.append(psiPlus)
+            psiAngularMinus.append(psiMinus)
+            psiAngular.append(psiCenter)
+            psiIncoming = 2 * psiCenter - psiIncoming
+        psiTemp.append(psiAngular)
+
+        # mu > 0
+        # psiIncoming Cancels out since associated alpha is 0.
+        psiIncoming = 0
+        psiAngularMinus = []
+        psiAngularPlus = []
+        psiAngular = []
+        for j in range(int(len(muList) / 4)):
+            minusIndex = int(len(muList) - 2 - 2 * j)
+            plusIndex = int(len(muList) - 1 - 2 * j)
+
+            CoefOne = 8 * muWeights[minusIndex] * muList[minusIndex] * ARight[i]
+            CoefOne += deltaA[i] * (alphaList[minusIndex] + alphaList[plusIndex]) / 2
+            CoefOne += -1 * deltaA[i] * alphaList[minusIndex] * betaList[minusIndex]
+            CoefOne += 4 * muWeights[minusIndex] * sigT * V[i]
+
+            CoefTwo = deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+            CoefTwo += deltaA[i] * alphaList[minusIndex] * betaList[plusIndex]
+
+            CoefThr = -4 * muWeights[minusIndex] * muList[minusIndex] * ARight[i] * psiSpatialLeft[i]
+            CoefThr += -4 * muWeights[minusIndex] * muList[minusIndex] * ALeft[i] * psiSpatialLeft[i]
+            CoefThr += -1 * Q * V[i]
+
+            CoefFor = -1 * deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+
+            CoefFiv = 8 * muWeights[plusIndex] * muList[plusIndex] * ARight[i]
+            CoefFiv += -1 * deltaA[i] * (alphaList[2 * j] + alphaList[2 * j + 1]) / 2
+            CoefFiv += 4 * muWeights[plusIndex] * sigT * V[i]
+
+            CoefSix = -4 * ARight[i] * muWeights[plusIndex] * muList[plusIndex] * psiSpatialRight[i]
+            CoefSix += -4 * ALeft[i] * muWeights[plusIndex] * muList[plusIndex] * psiSpatialRight[i]
+            CoefSix += deltaA[i] * alphaList[plusIndex] + psiIncoming
+            CoefSix += -1 * Q * V[i]
+
+            psiPlus = (CoefOne * CoefSix - CoefThr * CoefFor) / (CoefTwo * CoefFor - CoefOne * CoefFiv)
+            psiMinus = (CoefTwo * CoefSix - CoefThr * CoefFiv) / (CoefTwo * CoefFor - CoefOne * CoefFiv)
+            psiCenter = (psiPlus + psiMinus) / 2
+            psiAngularPlus.append(psiPlus)
+            psiAngularMinus.append(psiMinus)
+            psiAngular.append(psiCenter)
+            psiIncoming = 2 * psiCenter - psiIncoming
+        psiTemp.append(psiAngular)
+        psi.append(psiTemp)
+    print(psi)
 R = np.array([1., 2.])
 I_reg = np.array([40, 40])
 N_dir = 8
