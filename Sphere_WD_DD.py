@@ -4,9 +4,9 @@ Created on Thu Jan 18 11:16:48 2024
 
 @author: c.woodsford.9788
 
-Branch Version 1.2.3
+Branch Version 1.3.1
 Changes:
-    Local quadrature now supports non-uniform cells
+    Attempt 1 at Solving Flux using local system
 """
 
 import numpy as np
@@ -83,7 +83,7 @@ class Quad:
             # convert list of list to an array, then flatten along rows.
             self.mu = np.array(muList).flatten('C')
 
-        # Revert back to global quadature routine
+        # Revert back to global quadrature routine
         else:
             if N_dir % 2 != 0:
                 raise ValueError("No. of dir. is not even!")
@@ -104,7 +104,6 @@ class Quad:
         for nd in range(N_dir):
             self.beta[nd] = (self.mu[nd] - self.mu_half[nd]) / \
                             (self.mu_half[nd + 1] - self.mu_half[nd])
-
 
 class Solve:
     def __init__(self, R, I_reg, N_dir, bc, matprops, localQuad=False, angCellWidths=[]):
@@ -277,12 +276,62 @@ class Solve:
         plt.ylabel("Flux")
         plt.title("1D Spherical Transport Solution (Weighted Diamond-Diamond Difference)")
 
+def LocalGQSolve(N_dir, angCellWidths):
+    # Utilzing different solve operation for local quadrature sets in angle (1 region for now)
+    # Spatial Mesh Creator - Stores Cell Centers
+    MaxRadius = 1
+    CellNumber = 40
+    rCellLeft = []
+    rCellCenter = []
+    rCellRight = []
+    cellWidths = []
+    width = MaxRadius / CellNumber
+    centerOffset = width / 2
+    for i in range(CellNumber):
+        rCellLeft.append(i * width)
+        rCellCenter.append(centerOffset + i * width)
+        rCellRight.append((i + 1) * width)
+        cellWidths.append(width)
+
+    # Material Properties
+    sigT = 1.0
+
+    # Solving Slab Geometry
+    psiBound = 0
+    psiIncoming = psiBound
+    Q = 1
+    totalCells = len(rCellCenter)
+    psiSpatialCells = []
+    for i in range(totalCells):
+        # Psi Calculations
+        psiCenter = Q * cellWidths[totalCells - 1 - i] - 2 * psiIncoming
+        psiCenter /= sigT * cellWidths[totalCells - 1 - i] - 2
+        psiSpatialCells.insert(0, psiCenter)
+        psiOut = (2 * psiCenter - psiIncoming)
+        psiIncoming = psiOut
+
+    # Area and Volume Elements
+    V = []
+    ALeft = []
+    ARight = []
+    ADiff = []
+    for i in range(totalCells):
+        V.append(4 * np.pi / 3 * (rCellRight[i] ** 3 - rCellLeft[i] ** 3))
+        ALeft.append(4 * np.pi * rCellLeft[i] ** 2)
+        ARight.append(4 * np.pi * rCellRight[i] ** 2)
+        ADiff.append(4 * np.pi * (rCellRight[i] ** 2 - rCellLeft[i] ** 2))
+
+    # Extracts Quadrature Information from process above
+    QuadCharacteristics = Quad(N_dir, True, angCellWidths)
+    muList = QuadCharacteristics.mu
+    alphaList = QuadCharacteristics.alpha
+    betaList = QuadCharacteristics.beta
 
 R = np.array([1., 2.])
 I_reg = np.array([40, 40])
 N_dir = 8
 # localAngularCellLengths should have length equal to 1/4 * N_dir and should sum to 1
-# Intervals start from -1, and end at 0. Leave empty for uniform cells.
+# Intervals start from -1, and should end at 0 (It will be mirrored for 0 to 1). Leave empty for uniform cells.
 localAngularCellLengths = [0.75, 0.25]
 
 bc = {"type": "source", "value": 0.}
@@ -291,10 +340,12 @@ matprops = {"sigt": np.array([1.0, 1.0]),
             "sigs": np.array([0.5, 0.9]),
             "q": np.array([1.0, 0.0])}
 
-sol = Solve(R, I_reg, N_dir, bc, matprops)
-sol.solve()
-sol.plot()
 
-sol = Solve(R, I_reg, N_dir, bc, matprops, True, localAngularCellLengths)
-sol.solve()
-sol.plot()
+#sol = Solve(R, I_reg, N_dir, bc, matprops)
+#sol.solve()
+#sol.plot()
+
+LocalGQSolve(N_dir, localAngularCellLengths)
+#sol = Solve(R, I_reg, N_dir, bc, matprops, True, localAngularCellLengths)
+#sol.solve()
+#sol.plot()
