@@ -43,16 +43,28 @@ class Mesh:
 # quadrature class 
 class Quad:
     def __init__(self, N_dir):
-        # gauss-legendre quadrature
+        # number of directions
         self.N_dir = N_dir
-        self.mu,self.w = np.polynomial.legendre.leggauss(N_dir)
+        N_cells = int(N_dir/2)
         
-        # mu-cell boundaries and alpha 
-        self.mu_half = np.zeros(N_dir+1)
-        self.mu_half[0] = -1.
-        self.alpha = np.zeros(N_dir+1)
+        # mu-cell midpoints
+        mu_half = np.linspace(-1.,1.,N_cells+1)
+        mu = 0.5*(mu_half[:-1] + mu_half[1:])
+        
+        # local Gauss S2 quadrature
+        self.w = (1./N_cells)*np.ones((N_cells,2))
+        self.mu = np.zeros((N_cells,2))
+        self.mu[:,0] = self.w[:,0]*(-1./np.sqrt(3.)) + mu[:]
+        self.mu[:,1] = self.w[:,1]*(1./np.sqrt(3.)) + mu[:]
+        
+        # quadrature set
+        self.mu = self.mu.flatten()
+        self.w = self.w.flatten()
+        
+        # mu-cell boundaries and alpha
+        self.mu_half = np.linspace(-1.,1.,self.N_dir+1)
+        self.alpha = np.zeros(self.N_dir+1)
         for nd in range(N_dir):
-            self.mu_half[nd+1] = self.mu_half[nd] + self.w[nd]
             self.alpha[nd+1] = self.alpha[nd] - 2*self.mu[nd]*self.w[nd]
         
         # beta
@@ -61,8 +73,8 @@ class Quad:
             self.beta[nd] = (self.mu[nd] - self.mu_half[nd])/\
                             (self.mu_half[nd+1] - self.mu_half[nd])
     
+  
     
-
 # solver class    
 class Solve:
     def __init__(self, R, I_reg, N_dir, bc, matprops):
@@ -80,7 +92,7 @@ class Solve:
     def solve(self):
         # boundary flux 
         self.psi_bound = np.zeros(self.quad.N_dir)
-        self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2         
+        self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.         
         
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
@@ -99,8 +111,7 @@ class Solve:
             
             # sweeps
             for nd in range(self.quad.N_dir):
-                psi, psi_mu = self.sweep(nd, psi_mu, Phi_0)
-                Phi_1 += psi*self.quad.w[nd]
+                Phi_1, psi_mu = self.sweep(nd, psi_mu, Phi_0, Phi_1)
                 
             # calculate error
             if (it == 1):
@@ -153,7 +164,7 @@ class Solve:
         
     
     # sweep function
-    def sweep(self, nd, psi_mu, Phi):
+    def sweep(self, nd, psi_mu, Phi_0, Phi_1):
         # direction quantities
         mu      = self.quad.mu[nd]
         w       = self.quad.w[nd]
@@ -179,7 +190,6 @@ class Solve:
             inc = 1
         
         # sweep
-        psi = np.zeros(self.mesh.I)
         for iel in range(start, stop, inc):
             # cell properties
             A     = self.mesh.A[iel:iel+2]
@@ -194,13 +204,16 @@ class Solve:
             q     = self.matprops["q"][matID]
             
             # calculate cell-average angular flux
-            psi[iel] = (sigs*Phi[iel] + q)/2*V + np.abs(mu)*(A[1] + A[0])*psi_x \
-                     + (A[1] - A[0])/(2*w)*(alpha[1]*(1/beta - 1) + alpha[0])*psi_mu[iel]
-            psi[iel] /= (2*np.abs(mu)*A_out + alpha[1]*(A[1] - A[0])/(2*beta*w) + sigt*V)
+            psi = (sigs*Phi_0[iel] + q)/2*V + np.abs(mu)*(A[1] + A[0])*psi_x \
+                + (A[1] - A[0])/(2*w)*(alpha[1]*(1/beta - 1) + alpha[0])*psi_mu[iel]
+            psi /= (2*np.abs(mu)*A_out + alpha[1]*(A[1] - A[0])/(2*beta*w) + sigt*V)
+            
+            # add flux contribution
+            Phi_1[iel] += psi*w
             
             # update ingoing fluxes
-            psi_x = 2*psi[iel] - psi_x
-            psi_mu[iel] = (psi[iel] - (1-beta)*psi_mu[iel])/beta
+            psi_x = 2*psi - psi_x
+            psi_mu[iel] = (psi - (1-beta)*psi_mu[iel])/beta
         
         # positive-mu sweep
         if (mu > 0):
@@ -208,7 +221,7 @@ class Solve:
             self.psi_bound[nd] = psi_x
              
         # return angular fluxes
-        return psi, psi_mu
+        return Phi_1, psi_mu
     
     
     # calculate balance parameter
@@ -235,22 +248,22 @@ class Solve:
     # plot solution
     def plot(self):
         plt.figure(1)
-        plt.plot(self.mesh.r, self.Phi, 'r')
+        plt.plot(self.mesh.r, self.Phi, 'k--')
         plt.xlabel("r (cm)")
         plt.ylabel("Flux")
         plt.title("1D Spherical Transport Solution (Weighted Diamond-Diamond Difference)")
         
         
     
-R = np.array([1.,2.])
-I_reg = np.array([40,40])
+R = np.array([1.])
+I_reg = np.array([40])
 N_dir = 8 
 
 bc = {"type":"source","value":0.}
 
-matprops = {"sigt":np.array([1.0,1.0]),
-            "sigs":np.array([0.5,0.9]),
-               "q":np.array([1.0,0.0])}
+matprops = {"sigt":np.array([1.0]),
+            "sigs":np.array([0.0]),
+               "q":np.array([1.0])}
 
 sol = Solve(R, I_reg, N_dir, bc, matprops)
 sol.solve()
