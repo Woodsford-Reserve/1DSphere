@@ -340,48 +340,58 @@ class Solve:
                 plt.ylabel("Angular Flux")
         
         
-    
+
+"""
+Radius:
+-------
+The outer radius of each material region is provided as a one-dimensional numpy array;
+Below, this numpy array is R
+
+Cells per region:
+-----------------
+Similarly, the number of cells in each region is provided as a one-dimensional numpy
+array; Below, this numpy array is I_reg
+
+Boundary conditions:
+--------------------
+The boundary conditions are provided as a library, with the type given as "type" (this
+will be either "isotropic" or "anisotropic") and the source given as "value" (this will 
+either be a float if the "type" is "isotropic" or a one-dimensional numpy array of size
+N_dir/2 if the "type" is "anisotropic"); Below, the boundary condition library is bc
+
+Quadrature:
+-----------
+The quadrature rule specifications are provided as a library, with the number of directions
+given as "directions" (this will be an even integer), the quadrature rule given as 
+"quadrature" (this will be either "midpoint" for a midpoint rule or "gauss" for local Gauss
+S2), and the formula for the alpha coefficients specified by "alpha" (this will be either 
+"approximate" for the approximate recursive formula or "exact" for the exact formula (1-mu^2))
+                                                                              
+Material properties:
+--------------------
+The material properties are given as a library with the total cross section given as 
+"sigt" (this will be a numpy array of the sigt for each material region), the scattering
+cross section given as "sigs" (this will be a numpy array of the sigt for each material 
+region), and the volumetric sources given as "q" (this will be a numpy array of the sigt 
+for each material region); Below, the material properties are given as matprops
+"""
+
+
+
 R = np.array([1.])
-I_reg = np.array([1000])
+I_reg = np.array([40])
 
 bc_dict = {"type":"isotropic","value":0.}
 
-matprops = {"sigt":np.array([0.0]),
+matprops = {"sigt":np.array([1.0]),
             "sigs":np.array([0.0]),
                "q":np.array([1.0])}
 
 quad_dict = {"directions":8,
-              "quadrature":"gauss",
+             "quadrature":"gauss",
                   "alpha":"approximate"}
 
-sol = Solve(R, I_reg, quad_dict, bc_dict, matprops, True)
+sol = Solve(R, I_reg, quad_dict, bc_dict, matprops, do_angular=True)
 sol.solve()
 sol.plot()
 sol.angular()
-
-
-# quad_dict = {"directions":64,
-#               "quadrature":"midpoint",
-#                   "alpha":"approximate"}
-# sol = Solve(R, I_reg, quad_dict, bc_dict, matprops)
-# sol.solve()
-# Phi_1 = sol.Phi
-
-# quad_dict = {"directions":128,
-#               "quadrature":"midpoint",
-#                   "alpha":"approximate"}
-# sol = Solve(R, I_reg, quad_dict, bc_dict, matprops)
-# sol.solve()
-# Phi_2 = sol.Phi
-
-# quad_dict = {"directions":256,
-#               "quadrature":"midpoint",
-#                   "alpha":"approximate"}
-# sol = Solve(R, I_reg, quad_dict, bc_dict, matprops)
-# sol.solve()
-# Phi_3 = sol.Phi
-
-# ratio = np.sqrt(np.sum((Phi_1 - Phi_2)**2)) \
-#         / np.sqrt(np.sum((Phi_2 - Phi_3)**2))
-# print("\nRatio:",ratio)
-# print("Order Accuracy:",np.log(ratio)/np.log(2))

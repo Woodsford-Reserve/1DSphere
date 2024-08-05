@@ -77,7 +77,7 @@ class Quad:
     
 # solver class    
 class Solve:
-    def __init__(self, R, I_reg, N_dir, bc, matprops):
+    def __init__(self, R, I_reg, N_dir, bc, matprops, do_angular=False):
         nmats = len(matprops["sigt"])
         matIDs = np.arange(nmats)
         
@@ -87,12 +87,29 @@ class Solve:
         self.bc = bc
         self.matprops = matprops
         
+        # plot angular fluxes
+        self.do_angular = do_angular
+        
+        # check for void
+        self.do_balance = True 
+        if np.all(matprops["sigt"] == 0.) and np.all(matprops["sigs"] == 0.) and \
+                              np.all(matprops["q"] == 0.):
+            self.do_balance = False
+        
         
     # solver 
     def solve(self):
-        # boundary flux 
+        # angular fluxes
+        if self.do_angular == True:
+            self.psi = np.zeros((self.quad.N_dir,self.mesh.I))
+        
+        # isotropic flux boundary condition
         self.psi_bound = np.zeros(self.quad.N_dir)
-        self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.         
+        if (self.bc["type"] == "isotropic"):
+            self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.
+        # anisotropic flux boundary condition
+        if (self.bc["type"] == "anisotropic"):
+            self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"][:]       
         
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
@@ -130,8 +147,9 @@ class Solve:
         self.Phi = Phi_0
         
         # balance parameter
-        bal = self.balance()
-        print("Balance: "+str(bal))
+        if self.do_balance:
+            bal = self.balance()
+            print("Balance: "+str(bal))
             
                 
     # starting direction
@@ -208,6 +226,10 @@ class Solve:
                 + (A[1] - A[0])/(2*w)*(alpha[1]*(1/beta - 1) + alpha[0])*psi_mu[iel]
             psi /= (2*np.abs(mu)*A_out + alpha[1]*(A[1] - A[0])/(2*beta*w) + sigt*V)
             
+            # update angular flux
+            if self.do_angular == True:
+                self.psi[nd,iel]   = psi
+            
             # add flux contribution
             Phi_1[iel] += psi*w
             
@@ -248,23 +270,67 @@ class Solve:
     # plot solution
     def plot(self):
         plt.figure(1)
-        plt.plot(self.mesh.r, self.Phi, 'k--')
+        plt.plot(self.mesh.r, self.Phi, 'r')
         plt.xlabel("r (cm)")
         plt.ylabel("Flux")
         plt.title("1D Spherical Transport Solution (Weighted Diamond-Diamond Difference)")
         
+        
+    # plot angular fluxes
+    def angular(self):
+        if self.do_angular == True:
+            for nd in range(self.quad.N_dir):
+                plt.figure(nd+2)
+                plt.plot(self.mesh.r, self.psi[nd,:], 'r')
+                plt.xlabel("r (cm)")
+                plt.ylabel("Angular Flux")
+        
+     
+        
+"""
+Radius:
+-------
+The outer radius of each material region is provided as a one-dimensional numpy array;
+Below, this numpy array is R
+
+Cells per region:
+-----------------
+Similarly, the number of cells in each region is provided as a one-dimensional numpy
+array; Below, this numpy array is I_reg
+
+Number of directions:
+---------------------
+The number of quadrature directions is given as an even integer; Below, the number
+of directions is N_dir
+
+Boundary conditions:
+--------------------
+The boundary conditions are provided as a library, with the type given as "type" (this
+will be either "isotropic" or "anisotropic") and the source given as "value" (this will 
+either be a float if the "type" is "isotropic" or a one-dimensional numpy array of size
+N_dir/2 if the "type" is "anisotropic"); Below, the boundary condition library is bc
+                                                                              
+Material properties:
+--------------------
+The material properties are given as a library with the total cross section given as 
+"sigt" (this will be a numpy array of the sigt for each material region), the scattering
+cross section given as "sigs" (this will be a numpy array of the sigt for each material 
+region), and the volumetric sources given as "q" (this will be a numpy array of the sigt 
+for each material region); Below, the material properties are given as matprops
+"""
         
     
 R = np.array([1.])
 I_reg = np.array([40])
 N_dir = 8 
 
-bc = {"type":"source","value":0.}
+bc = {"type":"isotropic","value":0.}
 
 matprops = {"sigt":np.array([1.0]),
             "sigs":np.array([0.0]),
                "q":np.array([1.0])}
 
-sol = Solve(R, I_reg, N_dir, bc, matprops)
+sol = Solve(R, I_reg, N_dir, bc, matprops, do_angular=True)
 sol.solve()
 sol.plot()
+sol.angular()

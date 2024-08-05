@@ -332,9 +332,43 @@ class Solve:
                 plt.ylabel("Angular Flux")
         
         
+
+"""
+Radius:
+-------
+The outer radius of each material region is provided as a one-dimensional numpy array;
+Below, this numpy array is R
+
+Cells per region:
+-----------------
+Similarly, the number of cells in each region is provided as a one-dimensional numpy
+array; Below, this numpy array is I_reg
+
+Number of directions:
+---------------------
+The number of quadrature directions is given as an even integer; Below, the number
+of directions is N_dir
+
+Boundary conditions:
+--------------------
+The boundary conditions are provided as a library, with the type given as "type" (this
+will be either "isotropic" or "anisotropic") and the source given as "value" (this will 
+either be a float if the "type" is "isotropic" or a one-dimensional numpy array of size
+N_dir/2 if the "type" is "anisotropic"); Below, the boundary condition library is bc
+                                                                              
+Material properties:
+--------------------
+The material properties are given as a library with the total cross section given as 
+"sigt" (this will be a numpy array of the sigt for each material region), the scattering
+cross section given as "sigs" (this will be a numpy array of the sigt for each material 
+region), and the volumetric sources given as "q" (this will be a numpy array of the sigt 
+for each material region); Below, the material properties are given as matprops
+"""
+
+        
     
 R = np.array([1.])
-I_reg = np.array([1000])
+I_reg = np.array([40])
 N_dir = 8
 
 bc = {"type":"isotropic","value":0.}
@@ -343,25 +377,7 @@ matprops = {"sigt":np.array([1.0]),
             "sigs":np.array([0.0]),
                "q":np.array([1.0])}
 
-sol = Solve(R, I_reg, N_dir, bc, matprops, True)
+sol = Solve(R, I_reg, N_dir, bc, matprops, do_angular=True)
 sol.solve()
 sol.plot()
 sol.angular()
-
-
-# sol = Solve(R, I_reg, 128, bc, matprops)
-# sol.solve()
-# Phi_1 = sol.Phi
-
-# sol = Solve(R, I_reg, 256, bc, matprops)
-# sol.solve()
-# Phi_2 = sol.Phi
-
-# sol = Solve(R, I_reg, 512, bc, matprops)
-# sol.solve()
-# Phi_3 = sol.Phi
-
-# ratio = np.sqrt(np.sum((Phi_1 - Phi_2)**2)) \
-#        / np.sqrt(np.sum((Phi_2 - Phi_3)**2))
-# print("\nRatio:",ratio)
-# print("Order Accuracy:",np.log(ratio)/np.log(2))

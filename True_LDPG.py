@@ -372,30 +372,3 @@ sol = Solve(R, I_reg, quad_dict, bc_dict, matprops, True)
 sol.solve()
 sol.plot()
 sol.angular()
-
-
-# quad_dict = {"directions":32,
-#              "quadrature":"gauss",
-#                   "alpha":"exact"}
-# sol = Solve(R, I_reg, quad_dict, bc_dict, matprops)
-# sol.solve()
-# Phi_1 = sol.Phi
-
-# quad_dict = {"directions":64,
-#              "quadrature":"gauss",
-#                   "alpha":"exact"}
-# sol = Solve(R, I_reg, quad_dict, bc_dict, matprops)
-# sol.solve()
-# Phi_2 = sol.Phi
-
-# quad_dict = {"directions":128,
-#              "quadrature":"gauss",
-#                   "alpha":"exact"}
-# sol = Solve(R, I_reg, quad_dict, bc_dict, matprops)
-# sol.solve()
-# Phi_3 = sol.Phi
-
-# ratio = np.sqrt(np.sum((Phi_1 - Phi_2)**2)) \
-#         / np.sqrt(np.sum((Phi_2 - Phi_3)**2))
-# print("\nRatio:",ratio)
-# print("Order Accuracy:",np.log(ratio)/np.log(2))
