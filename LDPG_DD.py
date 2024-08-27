@@ -315,9 +315,17 @@ class Solve:
             source += q*V
             absorp += (sigt - sigs)*self.Phi[iel]*V
         # leakage
-        leak = np.sum(self.quad.mu*self.psi_bound*self.quad.w)*self.mesh.A[-1]
+        leak = 0
+        for i in range(int(self.quad.N_dir/2),int(self.quad.N_dir)):
+            leak += self.quad.mu[i] * self.psi_bound[i] * self.quad.w[i]
+        leak *= self.mesh.A[-1]
+        # bsource
+        bsource = 0
+        for i in range(int(self.quad.N_dir/2)):
+            bsource += np.abs(self.quad.mu[i])*self.psi_bound[i]*self.quad.w[i]
+        bsource *= self.mesh.A[-1]
         # balance parameter
-        bal = np.abs(source - (absorp + leak)) / source
+        bal = np.abs(source + bsource - (absorp + leak)) / (source + bsource)
         return bal
     
     
