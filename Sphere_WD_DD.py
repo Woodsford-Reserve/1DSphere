@@ -332,11 +332,11 @@ R = np.array([1.])
 I_reg = np.array([40])
 N_dir = 8 
 
-bc = {"type":"isotropic","value":0.}
+bc = {"type":"isotropic","value":1.}
 
 matprops = {"sigt":np.array([1.0]),
             "sigs":np.array([0.0]),
-               "q":np.array([1.0])}
+               "q":np.array([0.0])}
 
 sol = Solve(R, I_reg, N_dir, bc, matprops, do_angular=True)
 sol.solve()
