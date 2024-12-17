@@ -7,14 +7,14 @@ Created on Mon Feb 12 20:29:37 2024
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+import math
 
 
 # mesh class
 class Mesh:
     def __init__(self, matIDs, R, I_reg):
         # number of cells and regions 
-        self.I = np.sum(I_reg)
+        self.I = int(np.sum(I_reg))
         N_reg = len(matIDs)
         
         # add origin
@@ -55,7 +55,7 @@ class Quad:
         
         # local Gauss S2 quadrature points
         if quad_dict["quadrature"] == "gauss":
-            self.mu = np.zeros(self.N_dir) 
+            self.mu = np.zeros(self.N_dir)
             for n_mu in range(self.N_cells):
                 self.mu[2*n_mu]   = self.w[2*n_mu]*(-1./np.sqrt(3.))  + self.mu_half[2*n_mu+1]
                 self.mu[2*n_mu+1] = self.w[2*n_mu+1]*(1./np.sqrt(3.)) + self.mu_half[2*n_mu+1]
@@ -108,12 +108,26 @@ class Solve:
         
         # isotropic flux boundary condition
         self.psi_bound = np.zeros(self.quad.N_dir)
-        if (self.bc["type"] == "isotropic"):
+        if (self.bc["type"] == "isotropic0"):
             self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.
         # anisotropic flux boundary condition
-        if (self.bc["type"] == "anisotropic"):
-            self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"][:]
-        
+        type1 = self.bc["type"][:-1]
+        if (type1 == "anisotropic"):
+            '''
+            self.psi_bound[0] = 1 / (self.quad.w[0] * 2)
+            self.psi_bound[1] = self.psi_bound[0]
+            '''
+            for i in range(int(self.quad.N_dir / 2)):
+                self.psi_bound[i] = getPsi(self.quad.mu[i],self.bc)
+                if self.psi_bound[i] < 0:
+                    self.psi_bound[i] = 0
+            '''
+        sum1 = 0
+        for i in range(int(self.quad.N_dir / 2)):
+            sum1 += self.psi_bound[i] * self.quad.w[i] * self.quad.mu[i]
+        for i in range(int(self.quad.N_dir / 2)):
+            self.psi_bound[i] = -1 * self.psi_bound[i] / sum1
+            '''
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
         
@@ -140,7 +154,7 @@ class Solve:
                 delta = np.sqrt(np.sum(((Phi_1 - Phi_0)/Phi_1)**2))
                 rho = np.sum(np.abs(Phi_1 - Phi_0))/np.sum(np.abs(Phi_0 - Phi_m1))
                 err = delta/np.abs(1 - rho)
-            print(str(it)+" :: "+str(err))
+            print(str(it)+"\t\t  :: "+str(err))
             
             # next iteration
             Phi_m1 = Phi_0
@@ -152,7 +166,7 @@ class Solve:
         # balance parameter
         if self.do_balance:
             bal = self.balance()
-            print("Balance: "+str(bal))
+            print("\nBalance: "+str(bal))
     
 
     # starting direction
@@ -164,6 +178,8 @@ class Solve:
             mu0, mu1 = self.quad.mu[0], self.quad.mu[1]
             psi_x = self.psi_bound[0]*(mu1 + 1)/(mu1 - mu0) - \
                     self.psi_bound[1]*(mu0 + 1)/(mu1 - mu0)
+            # psi_x = getPsi(-1, self.bc)
+            
             if (psi_x < 0):
                 psi_x = 0
             
@@ -328,16 +344,62 @@ class Solve:
         bal = np.abs(source + bsource - (absorp + leak)) / (source + bsource)
         return bal
     
+    def AnalyticalSolve(self, n):
+        
+        N_cells = int(n / 2)
+        
+        # mu-cell boundaries
+        mu_half = np.linspace(-1.,1.,int(N_cells+1))
+        
+        # mu-cell midpoints
+        mu = 0.5*(mu_half[:-1] + mu_half[1:])
+        
+        # local Gauss S2 quadrature
+        w  = (1./N_cells)*np.ones(n)
+        mu2 = np.zeros(n) 
+        for n_mu in range(N_cells):
+            mu2[2*n_mu]   = w[2*n_mu]*(-1./np.sqrt(3.))  + mu[n_mu]
+            mu2[2*n_mu+1] = w[2*n_mu+1]*(1./np.sqrt(3.)) + mu[n_mu]
+        
+        Aphi = np.zeros(self.mesh.I)
+        Apsi = np.zeros((n,self.mesh.I))
+        siga = self.matprops["sigt"][0] - self.matprops["sigs"][0]
+        if self.matprops["sigs"][0] == 0 and self.matprops["q"][0] == 0:
+            for i in range(self.mesh.I):
+                for j in range(int(n)):
+                    theta1 = math.acos(mu2[j])
+                    theta2 = math.pi - math.asin(self.mesh.r[i] / self.mesh.R[1] * math.sin(theta1))
+                    d = math.sqrt(self.mesh.r[i] ** 2 + self.mesh.R[1] ** 2 - 2 * self.mesh.r[i] * self.mesh.R[1] * math.cos(theta2 - theta1))
+                    Apsi[j][i] = getPsi(math.cos(theta2),self.bc) * math.exp(-1 * siga * d)
+                    Aphi[i] += Apsi[j][i] * 2 / n
+        self.Apsi = Apsi
+        self.Aphi = Aphi
+    
     
     # plot solution
     def plot(self):
         plt.figure(1)
         plt.plot(self.mesh.r, self.Phi, 'k--')
+        plt.plot(self.mesh.r, self.Aphi)
         plt.xlabel("r (cm)")
         plt.ylabel("Flux")
-        plt.title("1D Spherical Transport Solution (Linear Discontinous-Diamond Difference)")
+        plt.title("1D Spherical Transport Solution (PG Linear Discontinous-Diamond Difference)")
+    
         
-        
+    def plotErr(self):
+        err = np.zeros_like(self.Phi)
+        L21 = np.sqrt(np.sum((self.Phi - self.Aphi) ** 2))
+        L22 = np.sqrt(np.sum(self.Aphi ** 2))
+        for i in range(len(self.Phi)):
+            err[i] = 100 * (self.Aphi[i] - self.Phi[i]) / self.Aphi[i]
+        self.err = err
+        plt.figure(2)
+        plt.plot(self.mesh.r, self.err)
+        plt.xlabel("r (cm)")
+        plt.ylabel("Error (%)")
+        plt.title("PG Spherical Transport Error")
+        return L21 , L22
+   
     # plot angular fluxes
     def angular(self):
         if self.do_angular == True:
@@ -346,7 +408,30 @@ class Solve:
                 plt.plot(self.mesh.r, self.psi[nd,:], 'k--')
                 plt.xlabel("r (cm)")
                 plt.ylabel("Angular Flux")
-        
+
+
+def getPsi(mu, bc):
+    psi = 0.0
+    boundType = bc["type"]
+    value = bc["value"]
+    type1 = boundType[:-1]
+    if boundType == "isotropic0":
+        return value / 2
+    type2 = int(boundType[-1:])
+    if type2 == 1:
+        norm = abs(1 / (-2 + 3/2 * value))
+        psi = (1 - ((1 + mu) / value)) * norm
+    if type2 == 2:
+        if mu < -0.75:
+            psi = 1
+    if type2 == 3:
+        psi = 1
+    if type2 == 4:
+        norm = abs(1 / (-0.5 * math.log(1 + value) + 0.5 * math.log(value) - 1 / (2 + 2 * value)))
+        psi = norm / (1 + value - mu ** 2) - norm / (1 + value)
+    if psi < 0:
+        psi = 0
+    return psi  
         
 
 """
@@ -384,8 +469,8 @@ region), and the volumetric sources given as "q" (this will be a numpy array of 
 for each material region); Below, the material properties are given as matprops
 """
 
-
-
+'''
+Original Input Values
 R = np.array([1.])
 I_reg = np.array([40])
 
@@ -398,8 +483,106 @@ matprops = {"sigt":np.array([1.0]),
 quad_dict = {"directions":8,
              "quadrature":"gauss",
                   "alpha":"approximate"}
+'''
 
-sol = Solve(R, I_reg, quad_dict, bc_dict, matprops, do_angular=True)
-sol.solve()
-sol.plot()
-sol.angular()
+def inputVals():
+    working = True
+    name = "input.csv"
+    if name != 'input.csv':
+        print('Please do not change the input file name from input.csv.')
+        working = False
+        
+    if working:
+        file1 = open(name, 'r')
+        data = np.genfromtxt(file1, delimiter = ',', dtype=str)
+        file1.close()
+        
+        try:
+            R = np.zeros(np.size(data[1]) - 1)
+            I_reg = np.zeros(np.size(data[1]) - 1)
+            N_dir = int(data[3][1])
+            bc = {str(data[4][0]):str(data[4][1]),
+                  str(data[5][0]):float(data[5][1])}
+            sigt = np.zeros(np.size(data[1]) - 1)
+            sigs = np.zeros(np.size(data[1]) - 1)
+            q = np.zeros(np.size(data[1]) - 1)
+            quadrature = str(data[9][1])
+            alpha = str(data[10][1])
+            for i in range(np.size(data[1]) - 1):
+                R[i] = float(data[1][i + 1])
+                I_reg[i] = int(data[2][i + 1])
+                sigt[i] = float(data[6][i + 1])
+                sigs[i] = float(data[7][i + 1])
+                q[i] = float(data[8][i + 1])
+            matprops = {str(data[6][0]):sigt,
+                        str(data[7][0]):sigs,
+                        str(data[8][0]):q}
+            quad_dict = {"directions":N_dir,
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+            quad_dict2 = {"directions":int(2 * N_dir),
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+            quad_dict4 = {"directions":int(4 * N_dir),
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+        except(ValueError):
+            print("Make sure all values are the correct type and filled in.")
+            working = False
+            return 0, 0, 0, 0, 0, 0, working, 0, 0
+        else:
+            if N_dir % 2 == 0:
+                return R, I_reg, quad_dict, bc, matprops, name, working, quad_dict2, quad_dict4
+            else:
+                return 1, 0, 0, 0, 0, 0, False, 0, 0
+
+
+def output(solved):
+    with open("output_phi.csv", "wb") as a:
+        np.savetxt(a, solved.Phi, delimiter=",")
+    if solved.do_angular:
+        with open("output_psi.csv", "wb") as a:
+            np.savetxt(a, np.transpose(solved.psi), delimiter=",")
+
+R, I_reg, quad_dict, bc, matprops, name, working, quad_dict2, quad_dict4 = inputVals()
+
+def L2norm(sol, sol2, sol4):
+    L2norm1 = np.sqrt(np.sum((sol.Phi - sol2.Phi) ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.Phi - sol4.Phi) ** 2))
+    print(L2norm1 / L2norm2)
+    return L2norm1 , L2norm2
+
+def L2norm2(sol, sol2):
+    L2norm1 = np.sqrt(np.sum((sol.err) ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.err) ** 2))
+    print(L2norm1 / L2norm2)
+    return L2norm1 , L2norm2
+
+L2 = True
+
+if working:
+    sol = Solve(R, I_reg, quad_dict, bc, matprops, False)
+    sol.solve()
+    if L2:
+        sol2 = Solve(R, I_reg, quad_dict2, bc, matprops, False)
+        sol4 = Solve(R, I_reg, quad_dict4, bc, matprops, False)
+        sol2.solve()
+        sol4.solve()
+        sol2.AnalyticalSolve(1000)
+        sol4.AnalyticalSolve(1000)
+        r10, r11 = sol2.plotErr()
+        r20, r21 = sol4.plotErr()
+        
+        num, denom = L2norm(sol, sol2, sol4)
+    
+    sol.AnalyticalSolve(1000)
+
+    sol.plot()
+    r00, r01 = sol.plotErr()
+    print(r00 / r10)
+    print(r10 / r20)
+    
+    sol.angular()
+    output(sol)
+elif R == 1:
+    print("Please have N_dir be an even integer.")
