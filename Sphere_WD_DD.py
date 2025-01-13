@@ -382,7 +382,8 @@ def getPsi(mu, bc):
         psi = 0
     return psi    
         
-"""
+"""2.3130267806111715
+
 Radius:
 -------
 The outer radius of each material region is provided as a one-dimensional numpy array;
@@ -482,30 +483,60 @@ def L2norm(sol, sol2, sol4):
     return L2norm1 , L2norm2
 
 def L2norm2(sol, sol2):
-    L2norm1 = np.sqrt(np.sum((sol.err) ** 2))
-    L2norm2 = np.sqrt(np.sum((sol2.err) ** 2))
+    L2norm1 = np.sqrt(np.sum((sol.Phi - sol.Aphi) ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.Phi - sol.Aphi) ** 2))
     print(L2norm1 / L2norm2)
     return L2norm1 , L2norm2
 
 R, I_reg, N_dir, bc, matprops, name, working = inputVals()
 
-L2 = True
+L2 = False
+everything = True
 
 if working:
-    sol = Solve(R, I_reg, N_dir, bc, matprops, False)
-    sol.solve()
+    sol8 = Solve(R, I_reg, N_dir, bc, matprops, False)
+    sol8.solve()
+    #sol.AnalyticalSolve(1000)
+    #sol.plotErr()
+    
+    if everything:
+        sol16 = Solve(R, I_reg, N_dir * 2, bc, matprops, False)
+        sol16.solve()
+        sol32 = Solve(R, I_reg, N_dir * 4, bc, matprops, False)
+        sol32.solve()
+        sol64 = Solve(R, I_reg, N_dir * 8, bc, matprops, False)
+        sol64.solve()
+        sol128 = Solve(R, I_reg, N_dir * 16, bc, matprops, False)
+        sol128.solve()
+        sol256 = Solve(R, I_reg, N_dir * 32, bc, matprops, False)
+        sol256.solve()
+        sol512 = Solve(R, I_reg, N_dir * 64, bc, matprops, False)
+        sol512.solve()
+        temp1, temp2 = L2norm(sol8, sol16, sol32)
+        temp1, temp2 = L2norm(sol16, sol32, sol64)
+        temp1, temp2 = L2norm(sol32, sol64, sol128)
+        temp1, temp2 = L2norm(sol64, sol128, sol256)
+        temp1, temp2 = L2norm(sol128, sol256, sol512)
     if L2:
         sol2 = Solve(R, I_reg, 2 * N_dir, bc, matprops, False)
-        sol4 = Solve(R, I_reg, 4 * N_dir, bc, matprops, False)
+        # sol4 = Solve(R, I_reg, 4 * N_dir, bc, matprops, False)
         sol2.solve()
-        sol4.solve()
-        sol2.AnalyticalSolve(1000)
-        sol4.AnalyticalSolve(1000)
-        r10, r11 = sol2.plotErr()
-        r20, r21 = sol4.plotErr()
-        
-        num, denom = L2norm(sol, sol2, sol4)
-    
+        # sol4.solve()
+        # num, denom = L2norm(sol, sol2, sol4)
+        # sol2.AnalyticalSolve(1000)
+        # sol4.AnalyticalSolve(1000)
+        # r10, r11 = sol2.plotErr()
+        # r20, r21 = sol4.plotErr()
+        L21, L22 = L2norm2(sol, sol2)
+        '''
+        diff1 = sol.leak - sol2.leak
+        diff2 = sol2.leak - sol4.leak
+        leak1 = sol.leak
+        leak2 = sol2.leak
+        leak4 = sol4.leak
+        print(diff1 / diff2)
+        '''
+    '''
     sol.AnalyticalSolve(1000)
 
     sol.plot()
@@ -514,6 +545,7 @@ if working:
     print(r10 / r20)
     
     sol.angular()
-    output(sol)
+    '''
+    output(sol8)
 elif R == 1:
     print("Please have N_dir be an even integer.")

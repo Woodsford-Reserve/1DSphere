@@ -214,7 +214,7 @@ class Solve:
         mu_half = self.quad.mu_half[2*n_mu+2]
 
         # basis functions
-        if (n_mu == 0):
+        if (n_mu == 0) and False:
             B_S     = lambda u: ((u-mu[0])*(u-mu[1]))/((-1-mu[0])*(-1-mu[1]))
             B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
             B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))
@@ -255,7 +255,7 @@ class Solve:
             q     = self.matprops["q"][matID]
             
             # first angular cell
-            if (n_mu == 0):
+            if (n_mu == 0) and False:
                 # angular cell midpoint
                 mu_1 = 0.5*(mu[0]+mu[1])
                 
@@ -301,7 +301,7 @@ class Solve:
             # update ingoing fluxes
             psi_x[0] = 2*psi_minus - psi_x[0]
             psi_x[1] = 2*psi_plus  - psi_x[1]
-            if (n_mu == 0):
+            if (n_mu == 0) and False:
                 psi_mu[iel] = psi_mu[iel]*B_S(mu_half) + psi_minus*B_minus(mu_half) \
                                            + psi_plus*B_plus(mu_half)
             else:
@@ -335,6 +335,7 @@ class Solve:
         for i in range(int(self.quad.N_dir/2),int(self.quad.N_dir)):
             leak += self.quad.mu[i] * self.psi_bound[i] * self.quad.w[i]
         leak *= self.mesh.A[-1]
+        self.leak = leak
         # bsource
         bsource = 0
         for i in range(int(self.quad.N_dir/2)):
@@ -517,13 +518,25 @@ def inputVals():
             matprops = {str(data[6][0]):sigt,
                         str(data[7][0]):sigs,
                         str(data[8][0]):q}
-            quad_dict = {"directions":N_dir,
+            qd1 = {"directions":N_dir,
                          "quadrature":quadrature,
                          "alpha":alpha}
-            quad_dict2 = {"directions":int(2 * N_dir),
+            qd2 = {"directions":int(2 * N_dir),
                          "quadrature":quadrature,
                          "alpha":alpha}
-            quad_dict4 = {"directions":int(4 * N_dir),
+            qd3 = {"directions":int(4 * N_dir),
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+            qd4 = {"directions":int(8 * N_dir),
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+            qd5 = {"directions":int(16 * N_dir),
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+            qd6 = {"directions":int(32 * N_dir),
+                         "quadrature":quadrature,
+                         "alpha":alpha}
+            qd7 = {"directions":int(64 * N_dir),
                          "quadrature":quadrature,
                          "alpha":alpha}
         except(ValueError):
@@ -532,7 +545,7 @@ def inputVals():
             return 0, 0, 0, 0, 0, 0, working, 0, 0
         else:
             if N_dir % 2 == 0:
-                return R, I_reg, quad_dict, bc, matprops, name, working, quad_dict2, quad_dict4
+                return R, I_reg, qd1, bc, matprops, name, working, qd2, qd3, qd4, qd5, qd6, qd7
             else:
                 return 1, 0, 0, 0, 0, 0, False, 0, 0
 
@@ -544,7 +557,7 @@ def output(solved):
         with open("output_psi.csv", "wb") as a:
             np.savetxt(a, np.transpose(solved.psi), delimiter=",")
 
-R, I_reg, quad_dict, bc, matprops, name, working, quad_dict2, quad_dict4 = inputVals()
+R, I_reg, qd1, bc, matprops, name, working, qd2, qd3, qd4, qd5, qd6, qd7 = inputVals()
 
 def L2norm(sol, sol2, sol4):
     L2norm1 = np.sqrt(np.sum((sol.Phi - sol2.Phi) ** 2))
@@ -553,36 +566,67 @@ def L2norm(sol, sol2, sol4):
     return L2norm1 , L2norm2
 
 def L2norm2(sol, sol2):
-    L2norm1 = np.sqrt(np.sum((sol.err) ** 2))
-    L2norm2 = np.sqrt(np.sum((sol2.err) ** 2))
+    L2norm1 = np.sqrt(np.sum((sol.Phi - sol.Aphi) ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.Phi - sol.Aphi) ** 2))
     print(L2norm1 / L2norm2)
     return L2norm1 , L2norm2
 
-L2 = True
+L2 = False
+everything = True
 
 if working:
-    sol = Solve(R, I_reg, quad_dict, bc, matprops, False)
-    sol.solve()
+    sol8 = Solve(R, I_reg, qd1, bc, matprops, False)
+    sol8.solve()
+    #sol8.AnalyticalSolve(1000)
+    #sol8.plotErr()
+    if everything:
+        sol16 = Solve(R, I_reg, qd2, bc, matprops, False)
+        sol16.solve()
+        sol32 = Solve(R, I_reg, qd3, bc, matprops, False)
+        sol32.solve()
+        sol64 = Solve(R, I_reg, qd4, bc, matprops, False)
+        sol64.solve()
+        sol128 = Solve(R, I_reg, qd5, bc, matprops, False)
+        sol128.solve()
+        sol256 = Solve(R, I_reg, qd6, bc, matprops, False)
+        sol256.solve()
+        sol512 = Solve(R, I_reg, qd7, bc, matprops, False)
+        sol512.solve()
+        temp1, temp2 = L2norm(sol8, sol16, sol32)
+        temp1, temp2 = L2norm(sol16, sol32, sol64)
+        temp1, temp2 = L2norm(sol32, sol64, sol128)
+        temp1, temp2 = L2norm(sol64, sol128, sol256)
+        temp1, temp2 = L2norm(sol128, sol256, sol512)
     if L2:
-        sol2 = Solve(R, I_reg, quad_dict2, bc, matprops, False)
-        sol4 = Solve(R, I_reg, quad_dict4, bc, matprops, False)
+        sol2 = Solve(R, I_reg, qd2, bc, matprops, False)
+        # sol4 = Solve(R, I_reg, qd4, bc, matprops, False)
         sol2.solve()
-        sol4.solve()
-        sol2.AnalyticalSolve(1000)
-        sol4.AnalyticalSolve(1000)
-        r10, r11 = sol2.plotErr()
-        r20, r21 = sol4.plotErr()
+        # sol4.solve()
+        '''
+        leak1 = sol.leak
+        leak2 = sol2.leak
+        leak4 = sol4.leak
+        diff1 = leak1 - leak2
+        diff2 = leak2 - leak4
+        print(diff1 / diff2)
+        '''
+        # sol2.AnalyticalSolve(1000)
+        # sol4.AnalyticalSolve(1000)
+        # r10, r11 = sol2.plotErr()
+        # r20, r21 = sol4.plotErr()
         
-        num, denom = L2norm(sol, sol2, sol4)
+        L21, L22 = L2norm2(sol, sol2)
+        # L23, L24 = L2norm2(sol2, sol4)
+        
     
-    sol.AnalyticalSolve(1000)
-
+    '''
     sol.plot()
     r00, r01 = sol.plotErr()
     print(r00 / r10)
     print(r10 / r20)
     
     sol.angular()
-    output(sol)
+    '''
+    output(sol8)
 elif R == 1:
     print("Please have N_dir be an even integer.")

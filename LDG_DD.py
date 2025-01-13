@@ -171,20 +171,6 @@ class Solve:
         
             if (psi_x < 0):
                 psi_x = 0
-                
-                
-                
-                
-                
-                
-                
-        # REDO ABOVE FOR NO INTERPOLATION
-        
-        
-        
-        
-        
-        
         
         # starting direction sweep
         psi_mu = np.zeros(self.mesh.I) 
@@ -212,18 +198,19 @@ class Solve:
     def sweep(self, n_mu, psi_mu, Phi_0, Phi_1):
         # direction quantities
         mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+        dmu     = mu[1] - mu[0]
         w       = self.quad.w[2*n_mu:2*n_mu+2]
         alpha   = self.quad.alpha[3*n_mu:3*n_mu+4]
         mu_half = self.quad.mu_half[n_mu:n_mu+2]
-        '''
-        # basis functions
+        
+        # quadratic basis functions
         if (n_mu == 0):
             B_S     = lambda u: ((u-mu[0])*(u-mu[1]))/((-1-mu[0])*(-1-mu[1]))
             B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
             B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))
-        else: '''
-        B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
-        B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+        else: 
+            B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+            B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
         
         # negative-mu sweeps
         if (mu[0] < 0):
@@ -257,40 +244,24 @@ class Solve:
             sigs  = self.matprops["sigs"][matID]
             q     = self.matprops["q"][matID]
             
-            '''
-            # first angular cell
-            if (n_mu == 0):
-                # coefficients
-                a00 = -2*mu[0]*A[0]*w[0] + alpha[3]*(A[1]-A[0])/2.*B_minus(mu_half[1]) + sigt*V*w[0]
-                a01 = -2*mu[1]*A[0]*w[1] + alpha[3]*(A[1]-A[0])/2.*B_plus(mu_half[1]) + sigt*V*w[1]
-                a10 = -2*mu[0]**2*A[0]*w[0] + (mu_half[1]*alpha[3]*B_minus(mu_half[1]) - alpha[1]*w[0]) \
-                      *(A[1]-A[0])/2. + mu[0]*sigt*V*w[0]
-                a11 = -2*mu[1]**2*A[0]*w[1] + (mu_half[1]*alpha[3]*B_plus(mu_half[1]) - alpha[2]*w[1]) \
-                      *(A[1]-A[0])/2. + mu[1]*sigt*V*w[1]
-                    
-                # source terms
-                b0 = (sigs*Phi_0[iel]+q)/2.*(w[0]+w[1])*V - alpha[3]*(A[1]-A[0])/2.*B_S(mu_half[1])*psi_mu[iel] \
-                     - (A[1]+A[0])*(mu[0]*psi_x[0]*w[0] + mu[1]*psi_x[1]*w[1])
-                b1 = (sigs*Phi_0[iel]+q)/2.*(mu[0]*w[0]+mu[1]*w[1])*V - mu_half[1]*alpha[3]*(A[1]-A[0])/2. \
-                     *B_S(mu_half[1])*psi_mu[iel] - (A[1]+A[0])*(mu[0]**2*psi_x[0]*w[0] + mu[1]**2*psi_x[1]*w[1])
             
-            # other angular cells
-            else: '''
-            if True:
-                # coefficients
-                a00 = 2*np.abs(mu[0])*A_out*w[0] + alpha[3]*B_minus(mu_half[1])*(A[1]-A[0])/2. + sigt*V*w[0]
-                a01 = 2*np.abs(mu[1])*A_out*w[1] + alpha[3]*B_plus(mu_half[1])*(A[1]-A[0])/2. + sigt*V*w[1]
-                a10 = 2*np.abs(mu[0])*mu[0]*A_out*w[0] + (mu_half[1]*alpha[3]*B_minus(mu_half[1]) - alpha[1]*w[0]) \
-                      *(A[1]-A[0])/2. + mu[0]*sigt*V*w[0]
-                a11 = 2*np.abs(mu[1])*mu[1]*A_out*w[1] + (mu_half[1]*alpha[3]*B_plus(mu_half[1]) - alpha[2]*w[1]) \
-                      *(A[1]-A[0])/2. + mu[1]*sigt*V*w[1]
-                    
-                # source terms
-                b0 = (sigs*Phi_0[iel]+q)/2.*(w[0]+w[1])*V + alpha[0]*(A[1]-A[0])/2.*psi_mu[iel] \
-                     + (A[1]+A[0])*(np.abs(mu[0])*psi_x[0]*w[0] + np.abs(mu[1])*psi_x[1]*w[1])
-                b1 = (sigs*Phi_0[iel]+q)/2.*(mu[0]*w[0]+mu[1]*w[1])*V + mu_half[0]*alpha[0]*(A[1] \
-                     - A[0])/2.*psi_mu[iel] + (A[1]+A[0])*(np.abs(mu[0])*mu[0]*psi_x[0]*w[0] \
-                     + np.abs(mu[1])*mu[1]*psi_x[1]*w[1]) 
+            # first angular cell
+            a00 = 2*np.abs(mu[0])*A_out + (A[1]-A[0])/2.*(alpha[3]/w[0]*(mu[1]-mu_half[1])/(mu[1]-mu[0]) \
+                                *B_minus(mu_half[1]) + alpha[1]/dmu) + sigt*V
+            a01 = (A[1]-A[0])/2.*(alpha[3]/w[0]*(mu[1]-mu_half[1])/(mu[1]-mu[0])*B_plus(mu_half[1]) + alpha[2]/dmu)
+            a10 = (A[1]-A[0])/2.*(alpha[3]/w[0]*B_minus(mu_half[1])*(mu_half[1]-mu[0])/(mu[1]-mu[0]) - alpha[1]/dmu)
+            a11 = 2*np.abs(mu[1])*A_out + (A[1]-A[0])/2.*(alpha[3]/w[0]*(mu_half[1]-mu[0])/(mu[1]-mu[0]) \
+                                 *B_plus(mu_half[1]) - alpha[2]/dmu) + sigt*V
+                
+            # source terms
+            b0 = (sigs*Phi_0[iel]+q)/2.*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0]
+            b1 = (sigs*Phi_0[iel]+q)/2.*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
+            if n_mu == 0:
+                b0 -= (A[1]-A[0])/(2.*w[0])*alpha[3]*(mu[1]-mu_half[1])/(mu[1]-mu[0])*B_S(mu_half[1])*psi_mu[iel]
+                b1 -= (A[1]-A[0])/(2.*w[0])*alpha[3]*(mu_half[1]-mu[0])/(mu[1]-mu[0])*B_S(mu_half[1])*psi_mu[iel]
+            else:
+                b0 += (A[1]-A[0])/(2.*w[0])*alpha[0]*B_minus(mu_half[0])*psi_mu[iel]
+                b1 += (A[1]-A[0])/(2.*w[0])*alpha[0]*B_plus(mu_half[0])*psi_mu[iel]
                                     
             # calculate Gauss point angular fluxes
             psi_minus = (a11*b0 - a01*b1)/(a00*a11 - a10*a01)
@@ -307,12 +278,12 @@ class Solve:
             # update ingoing fluxes
             psi_x[0] = 2*psi_minus - psi_x[0]
             psi_x[1] = 2*psi_plus  - psi_x[1]
-            '''
+            
             if (n_mu == 0):
                 psi_mu[iel] = psi_mu[iel]*B_S(mu_half[1]) + psi_minus*B_minus(mu_half[1]) \
                                            + psi_plus*B_plus(mu_half[1])
-            else: '''
-            psi_mu[iel] = psi_minus*B_minus(mu_half[1]) + psi_plus*B_plus(mu_half[1])
+            else: 
+                psi_mu[iel] = psi_minus*B_minus(mu_half[1]) + psi_plus*B_plus(mu_half[1])
                           
         # positive-mu sweep
         if (mu[0] > 0):
@@ -342,7 +313,6 @@ class Solve:
         for i in range(int(self.quad.N_dir/2),int(self.quad.N_dir)):
             leak += self.quad.mu[i] * self.psi_bound[i] * self.quad.w[i]
         leak *= self.mesh.A[-1]
-        print(leak)
         self.leak = leak
         # bsource
         bsource = 0
@@ -412,13 +382,14 @@ class Solve:
     def errComp(self):
         max1 = 0
         max2 = 0
+        last = self.mesh.I - 1
         errComp1 = np.zeros(self.quad.N_dir)
         errComp2 = np.zeros(self.quad.N_dir)
         for i in range(self.quad.N_dir):
             # print out analytical sol, sol, and difference for all angles at r~0 and r~1
             # print(math.acos(self.quad.mu[i]), self.Apsi[i][999], self.psi[i][999], self.Apsi[i][999] - self.psi[i][999])
             errComp1[i] = ((self.Apsi[i][0] - self.psi[i][0]))
-            errComp2[i] = ((self.Apsi[i][self.mesh.I - 1] - self.psi[i][self.mesh.I - 1]))
+            errComp2[i] = ((self.Apsi[i][last] - self.psi[i][last]))
         plt.figure(8)
         plt.plot(self.quad.mu,errComp1)
         plt.figure(9)
@@ -429,8 +400,8 @@ class Solve:
             if abs((self.Apsi[i][0] - self.psi[i][0]) / self.Apsi[i][0]) > max1:
                 max1 = abs((self.Apsi[i][0] - self.psi[i][0]) / self.Apsi[i][0])
                 it1 = i
-            if abs((self.Apsi[i][19] - self.psi[i][19]) / self.Apsi[i][19]) > max2:
-                max2 = abs((self.Apsi[i][999] - self.psi[i][999]) / self.Apsi[i][999])
+            if abs((self.Apsi[i][last] - self.psi[i][last]) / self.Apsi[i][last]) > max2:
+                max2 = abs((self.Apsi[i][last] - self.psi[i][last]) / self.Apsi[i][last])
                 it2 = i
         return max1,it1,max2,it2
     
@@ -452,7 +423,7 @@ def getPsi(mu, bc):
     type2 = int(boundType[-1:])
     
     # isotropic BC
-    if type1 == "isotropic":
+    if boundType == "isotropic0":
         psi = value / 2
     
     # anisotropic BC
@@ -581,40 +552,71 @@ def Linf(sol, sol2, sol4):
     print(Linf1 / Linf2)
     return Linf1, Linf2
 
-def L2norm2(sol, sol2):
-    L2norm1 = np.sqrt(np.sum((sol.err) ** 2))
-    L2norm2 = np.sqrt(np.sum((sol2.err) ** 2))
+def L2norm2(sol, sol2, sol4):
+    L2norm1 = np.sqrt(np.sum((sol.Aphi - sol2.Aphi) ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.Aphi - sol4.Aphi) ** 2))
     print(L2norm1 / L2norm2)
     return L2norm1 , L2norm2
 
 R, I_reg, N_dir, bc, matprops, name, working = inputVals()
 
-L2 = True
+L2 = False
+everything = True
 
 if working:
-    sol = Solve(R, I_reg, N_dir, bc, matprops, True)
-    sol.solve()
-    leakE = 2.2085487408136317
+    sol8 = Solve(R, I_reg, N_dir, bc, matprops, False)
+    sol8.solve()
+    #sol.AnalyticalSolve(1000)
+    #sol.plotErr()
+    
+    if everything:
+        sol16 = Solve(R, I_reg, N_dir * 2, bc, matprops, False)
+        sol16.solve()
+        sol32 = Solve(R, I_reg, N_dir * 4, bc, matprops, False)
+        sol32.solve()
+        sol64 = Solve(R, I_reg, N_dir * 8, bc, matprops, False)
+        sol64.solve()
+        sol128 = Solve(R, I_reg, N_dir * 16, bc, matprops, False)
+        sol128.solve()
+        sol256 = Solve(R, I_reg, N_dir * 32, bc, matprops, False)
+        sol256.solve()
+        sol512 = Solve(R, I_reg, N_dir * 64, bc, matprops, False)
+        sol512.solve()
+        temp1, temp2 = L2norm(sol8, sol16, sol32)
+        temp1, temp2 = L2norm(sol16, sol32, sol64)
+        temp1, temp2 = L2norm(sol32, sol64, sol128)
+        temp1, temp2 = L2norm(sol64, sol128, sol256)
+        temp1, temp2 = L2norm(sol128, sol256, sol512)
+    '''
+    bal = 1.431249606658718e-13
+    leakE = 2.208548740176699
+    bal2 = 2.2285086468124973e-13
+    leakE2 = 2.208548803176993
+    '''
     if L2:
         sol2 = Solve(R, I_reg, 2 * N_dir, bc, matprops, False)
         sol4 = Solve(R, I_reg, 4 * N_dir, bc, matprops, False)
         sol2.solve()
         sol4.solve()
-        # sol2.AnalyticalSolve(1000)
-        # sol4.AnalyticalSolve(1000)
         # r10, r11 = sol2.plotErr()
         # r20, r21 = sol4.plotErr()
-        print((sol.leak - leakE) / (sol2.leak - leakE))
-        print((sol2.leak - leakE) / (sol4.leak - leakE))
-        # num, denom = L2norm(sol, sol2, sol4)
+        '''
+        diff1 = sol.leak - leakE2
+        diff2 = sol2.leak - leakE2
+        diff4 = sol4.leak - leakE2
+        print(diff1 / diff2)
+        print(diff2 / diff4)
+        '''
+        num, denom = L2norm2(sol, sol2, sol4)
         # num2, denom2 = Linf(sol, sol2, sol4)
-    # sol.AnalyticalSolve(1000)
     # sol.plot()
     # r00, r01 = sol.plotErr()
     # print(r00 / r10)
     # print(r10 / r20)
+    '''
     if sol.do_angular:
         max1,it1,max2,it2 = sol.errComp()
-    output(sol)
+    '''
+    output(sol8)
 elif R == 1:
     print("Please have N_dir be an even integer.")
