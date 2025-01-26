@@ -196,6 +196,7 @@ class Solve:
         
     # sweep function
     def sweep(self, n_mu, psi_mu, Phi_0, Phi_1):
+        quadratic = True
         # direction quantities
         mu      = self.quad.mu[2*n_mu:2*n_mu+2]
         dmu     = mu[1] - mu[0]
@@ -204,11 +205,12 @@ class Solve:
         mu_half = self.quad.mu_half[n_mu:n_mu+2]
         
         # quadratic basis functions
-        if (n_mu == 0):
+        if n_mu == 0 and quadratic:
             B_S     = lambda u: ((u-mu[0])*(u-mu[1]))/((-1-mu[0])*(-1-mu[1]))
             B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
             B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))
-        else: 
+        # linear basis functions
+        else:
             B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
             B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
         
@@ -256,7 +258,7 @@ class Solve:
             # source terms
             b0 = (sigs*Phi_0[iel]+q)/2.*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0]
             b1 = (sigs*Phi_0[iel]+q)/2.*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
-            if n_mu == 0:
+            if n_mu == 0 and quadratic:
                 b0 -= (A[1]-A[0])/(2.*w[0])*alpha[3]*(mu[1]-mu_half[1])/(mu[1]-mu[0])*B_S(mu_half[1])*psi_mu[iel]
                 b1 -= (A[1]-A[0])/(2.*w[0])*alpha[3]*(mu_half[1]-mu[0])/(mu[1]-mu[0])*B_S(mu_half[1])*psi_mu[iel]
             else:
@@ -279,10 +281,10 @@ class Solve:
             psi_x[0] = 2*psi_minus - psi_x[0]
             psi_x[1] = 2*psi_plus  - psi_x[1]
             
-            if (n_mu == 0):
+            if (n_mu == 0) and quadratic:
                 psi_mu[iel] = psi_mu[iel]*B_S(mu_half[1]) + psi_minus*B_minus(mu_half[1]) \
                                            + psi_plus*B_plus(mu_half[1])
-            else: 
+            else:
                 psi_mu[iel] = psi_minus*B_minus(mu_half[1]) + psi_plus*B_plus(mu_half[1])
                           
         # positive-mu sweep
@@ -558,6 +560,13 @@ def L2norm2(sol, sol2, sol4):
     print(L2norm1 / L2norm2)
     return L2norm1 , L2norm2
 
+def L2Anorm(Asol, sol1, sol2):
+    L2norm1 = np.sqrt(np.sum((sol1.Phi - Asol.Aphi) ** 2) / np.sum(Asol.Aphi ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.Phi - Asol.Aphi) ** 2) / np.sum(Asol.Aphi ** 2))
+    print(L2norm1)
+    print(L2norm2)
+    return L2norm1 , L2norm2
+
 R, I_reg, N_dir, bc, matprops, name, working = inputVals()
 
 L2 = False
@@ -566,7 +575,7 @@ everything = True
 if working:
     sol8 = Solve(R, I_reg, N_dir, bc, matprops, False)
     sol8.solve()
-    #sol.AnalyticalSolve(1000)
+    sol8.AnalyticalSolve(1000)
     #sol.plotErr()
     
     if everything:
@@ -582,11 +591,20 @@ if working:
         sol256.solve()
         sol512 = Solve(R, I_reg, N_dir * 64, bc, matprops, False)
         sol512.solve()
+        '''
         temp1, temp2 = L2norm(sol8, sol16, sol32)
         temp1, temp2 = L2norm(sol16, sol32, sol64)
         temp1, temp2 = L2norm(sol32, sol64, sol128)
         temp1, temp2 = L2norm(sol64, sol128, sol256)
         temp1, temp2 = L2norm(sol128, sol256, sol512)
+        '''
+        (L2Anorm(sol8, sol8, sol16))
+        (L2Anorm(sol8, sol16, sol32))
+        (L2Anorm(sol8, sol32, sol64))
+        (L2Anorm(sol8, sol64, sol128))
+        (L2Anorm(sol8, sol128, sol256))
+        (L2Anorm(sol8, sol256, sol512))
+        
     '''
     bal = 1.431249606658718e-13
     leakE = 2.208548740176699

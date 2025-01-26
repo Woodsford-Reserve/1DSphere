@@ -488,6 +488,12 @@ def L2norm2(sol, sol2):
     print(L2norm1 / L2norm2)
     return L2norm1 , L2norm2
 
+def L2Anorm(Asol, sol1, sol2):
+    L2norm1 = np.sqrt(np.sum((sol1.Phi - Asol.Aphi) ** 2))
+    L2norm2 = np.sqrt(np.sum((sol2.Phi - Asol.Aphi) ** 2))
+    print(L2norm1 / L2norm2)
+    return L2norm1 , L2norm2
+
 R, I_reg, N_dir, bc, matprops, name, working = inputVals()
 
 L2 = False
@@ -496,7 +502,7 @@ everything = True
 if working:
     sol8 = Solve(R, I_reg, N_dir, bc, matprops, False)
     sol8.solve()
-    #sol.AnalyticalSolve(1000)
+    sol8.AnalyticalSolve(1000)
     #sol.plotErr()
     
     if everything:
@@ -512,11 +518,19 @@ if working:
         sol256.solve()
         sol512 = Solve(R, I_reg, N_dir * 64, bc, matprops, False)
         sol512.solve()
+        '''
         temp1, temp2 = L2norm(sol8, sol16, sol32)
         temp1, temp2 = L2norm(sol16, sol32, sol64)
         temp1, temp2 = L2norm(sol32, sol64, sol128)
         temp1, temp2 = L2norm(sol64, sol128, sol256)
         temp1, temp2 = L2norm(sol128, sol256, sol512)
+        '''
+        (L2Anorm(sol8, sol8, sol16))
+        (L2Anorm(sol8, sol16, sol32))
+        (L2Anorm(sol8, sol32, sol64))
+        (L2Anorm(sol8, sol64, sol128))
+        (L2Anorm(sol8, sol128, sol256))
+        (L2Anorm(sol8, sol256, sol512))
     if L2:
         sol2 = Solve(R, I_reg, 2 * N_dir, bc, matprops, False)
         # sol4 = Solve(R, I_reg, 4 * N_dir, bc, matprops, False)
