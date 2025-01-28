@@ -327,22 +327,25 @@ class Solve:
     
 
     def AnalyticalSolve(self, n):
+        local = False
         
         N_cells = int(n / 2)
         
         # mu-cell boundaries
-        mu_half = np.linspace(-1.,1.,int(N_cells+1))
+        if local:
+            mu_half = np.linspace(-1.,1.,int(N_cells+1))
         
-        # mu-cell midpoints
-        mu = 0.5*(mu_half[:-1] + mu_half[1:])
+            # mu-cell midpoints
+            mu = 0.5*(mu_half[:-1] + mu_half[1:])
         
-        # local Gauss S2 quadrature
-        w  = (1./N_cells)*np.ones(n)
-        mu2 = np.zeros(n) 
-        for n_mu in range(N_cells):
-            mu2[2*n_mu]   = w[2*n_mu]*(-1./np.sqrt(3.))  + mu[n_mu]
-            mu2[2*n_mu+1] = w[2*n_mu+1]*(1./np.sqrt(3.)) + mu[n_mu]
-        
+            # local Gauss S2 quadrature
+            w  = (1./N_cells)*np.ones(n)
+            mu2 = np.zeros(n) 
+            for n_mu in range(N_cells):
+               mu2[2*n_mu]   = w[2*n_mu]*(-1./np.sqrt(3.))  + mu[n_mu]
+               mu2[2*n_mu+1] = w[2*n_mu+1]*(1./np.sqrt(3.)) + mu[n_mu]
+        else:
+            mu2, w = np.polynomial.legendre.leggauss(n)
         Aphi = np.zeros(self.mesh.I)
         Apsi = np.zeros((n,self.mesh.I))
         siga = self.matprops["sigt"][0] - self.matprops["sigs"][0]
@@ -354,7 +357,7 @@ class Solve:
                     theta2 = (math.pi - math.asin(self.mesh.r[i] / self.mesh.R[1] * (math.sin(theta1))))
                     d = (math.sqrt(self.mesh.r[i] ** 2 + self.mesh.R[1] ** 2 - 2 * self.mesh.r[i] * self.mesh.R[1] * math.cos(theta2 - theta1)))
                     Apsi[j][i] = (getPsi(math.cos(theta2),self.bc) * math.exp(-1 * siga * d))
-                    Aphi[i] += Apsi[j][i] * 2 / n
+                    Aphi[i] += Apsi[j][i] * w[j]
         self.Apsi = Apsi
         self.Aphi = Aphi
     
@@ -426,7 +429,7 @@ def getPsi(mu, bc):
     
     # isotropic BC
     if boundType == "isotropic0":
-        psi = value / 2
+        psi = value/2.
     
     # anisotropic BC
     if type1 == 'anisotropic':
@@ -535,8 +538,8 @@ def inputVals():
 
 
 def output(solved):
-    with open("output_phi.csv", "wb") as a:
-        np.savetxt(a, solved.Phi, delimiter=",")
+    with open("output_phi1.csv", "wb") as a:
+        np.savetxt(a, solved.Aphi, delimiter=",")
     if solved.do_angular:
         with open("output_psi.csv", "wb") as a:
             np.savetxt(a, np.transpose(solved.psi), delimiter=",")
@@ -570,7 +573,7 @@ def L2Anorm(Asol, sol1, sol2):
 R, I_reg, N_dir, bc, matprops, name, working = inputVals()
 
 L2 = False
-everything = True
+everything = False
 
 if working:
     sol8 = Solve(R, I_reg, N_dir, bc, matprops, False)
@@ -591,6 +594,10 @@ if working:
         sol256.solve()
         sol512 = Solve(R, I_reg, N_dir * 64, bc, matprops, False)
         sol512.solve()
+        sol1024 = Solve(R, I_reg, N_dir * 128, bc, matprops, False)
+        sol1024.solve()
+        sol2048 = Solve(R, I_reg, N_dir * 256, bc, matprops, False)
+        sol2048.solve()
         '''
         temp1, temp2 = L2norm(sol8, sol16, sol32)
         temp1, temp2 = L2norm(sol16, sol32, sol64)
@@ -604,6 +611,9 @@ if working:
         (L2Anorm(sol8, sol64, sol128))
         (L2Anorm(sol8, sol128, sol256))
         (L2Anorm(sol8, sol256, sol512))
+        (L2Anorm(sol8, sol512, sol1024))
+        (L2Anorm(sol8, sol1024, sol2048))
+        
         
     '''
     bal = 1.431249606658718e-13
