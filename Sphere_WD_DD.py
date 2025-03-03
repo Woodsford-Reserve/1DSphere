@@ -149,7 +149,7 @@ class Solve:
             if (it == 1):
                 err = 1
             else:
-                delta = np.sqrt(np.sum(((Phi_1 - Phi_0)/Phi_1)**2))
+                delta = np.sqrt(np.sum((Phi_1 - Phi_0)**2) / np.sum(Phi_1**2))
                 rho = np.sum(np.abs(Phi_1 - Phi_0))/np.sum(np.abs(Phi_0 - Phi_m1))
                 err = delta/np.abs(1 - rho)
             print(str(it)+"\t\t  :: "+str(err))

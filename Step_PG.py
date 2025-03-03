@@ -104,7 +104,8 @@ class Solve:
     def solve(self):
         # angular fluxes
         if self.do_angular == True:
-            self.psi = np.ones((self.quad.N_dir,self.mesh.I))
+            self.psi = np.zeros((self.quad.N_dir,self.mesh.I))
+            # self.import_psi("output_psi.csv")
         
         # isotropic flux boundary condition
         self.psi_bound = np.zeros(self.quad.N_dir)
@@ -151,10 +152,10 @@ class Solve:
             if (it == 1):
                 err = 1
             else:
-                delta = np.sqrt(np.sum(((Phi_1 - Phi_0)/Phi_1)**2))
+                delta = np.sqrt(np.sum((Phi_1 - Phi_0)**2) / np.sum(Phi_1**2))
                 rho = np.sum(np.abs(Phi_1 - Phi_0))/np.sum(np.abs(Phi_0 - Phi_m1))
-                err = delta/np.abs(1 - rho)
-            print(str(it)+"\t\t  :: "+str(err))
+                err = delta #/np.abs(1 - rho)
+                print(str(it)+"\t\t  :: "+str(err) + "\t\t" + str(rho))
             
             # next iteration
             Phi_m1 = Phi_0
@@ -255,86 +256,85 @@ class Solve:
             sigs  = self.matprops["sigs"][matID]
             q     = self.matprops["q"][matID]
             
-            err = 1
-            tol = 1e-2
-            it1 = 0
-            while err > tol:
             
-                # first angular cell
-                if (n_mu == 0) and quadratic:
-                    # angular cell midpoint
-                    mu_1 = 0.5*(mu[0]+mu[1])
+            # first angular cell
+            if (n_mu == 0) and quadratic:
+                # angular cell midpoint
+                mu_1 = 0.5*(mu[0]+mu[1])
                 
-                    # coefficients
-                    a00 = -2*mu[0]*A[0] + alpha[1]*(A[1]-A[0])/(w[0]) + sigt*V
-                    a01 = 0
-                    a10 = 0
-                    a11 = -2*mu[1]*A[0] + alpha[2]*(A[1]-A[0])/(w[1]) + sigt*V
+                # coefficients
+                a00 = -2*mu[0]*A[0] + alpha[1]*(A[1]-A[0])/(2*w[0]) + sigt*V
+                a01 = 0
+                a10 = 0
+                a11 = -2*mu[1]*A[0] + alpha[2]*(A[1]-A[0])/(2*w[1]) + sigt*V
                 
-                    lagTerm0 = -1*alpha[1]*(A[1]-A[0])/(2*w[0])*B_minus(mu_1) \
-                        - alpha[1]*(A[1]-A[0])/(2*w[0])*B_plus(mu_1) \
-                            + alpha[1]*(A[1]-A[0])/(w[0])
+                lagTerm00 = -1*alpha[1]*(A[1]-A[0])/(2*w[0])*B_minus(mu_1) \
+                            + alpha[1]*(A[1]-A[0])/(2*w[0])
+                lagTerm01 = -1*alpha[1]*(A[1]-A[0])/(2*w[0])*B_plus(mu_1)
                 
-                    lagTerm1 = -1*(alpha[2]*B_minus(mu_half) - alpha[1]*B_minus(mu_1))*(A[1]-A[0])/(2*w[1]) \
-                        - (alpha[2]*B_plus(mu_half) - alpha[1]*B_plus(mu_1))*(A[1]-A[0])/(2*w[1]) \
-                            + alpha[2]*(A[1]-A[0])/(w[1])
-                    # source terms
-                    b0 = (sigs*Phi_0[iel]+q)/2*V - mu[0]*(A[1]+A[0])*psi_x[0] \
+                lagTerm10 = -1*(alpha[2]*B_minus(mu_half) - alpha[1]*B_minus(mu_1))*(A[1]-A[0])/(2*w[1])
+                        
+                lagTerm11 = -1*(alpha[2]*B_plus(mu_half) - alpha[1]*B_plus(mu_1))*(A[1]-A[0])/(2*w[1]) \
+                            + alpha[2]*(A[1]-A[0])/(2*w[1])
+                # source terms
+                b0 = (sigs*Phi_0[iel]+q)/2*V - mu[0]*(A[1]+A[0])*psi_x[0] \
                       - alpha[1]*(A[1]-A[0])/(2*w[0])*B_S(mu_1)*psi_mu[iel]
-                    b1 = (sigs*Phi_0[iel]+q)/2*V - mu[1]*(A[1]+A[0])*psi_x[1] \
-                      - (A[1]-A[0])/(2*w[1])*(alpha[2]*B_S(mu_half) - alpha[1]*B_S(mu_1))*psi_mu[iel]
-                
-                # other angular cells
-                else:
-                    # coefficients
-                    a00 = 2*np.abs(mu[0])*A_out + sigt*V
-                    a01 = 0
-                    a10 = 0
-                    a11 = 2*np.abs(mu[1])*A_out + sigt*V
-                
-                    lagTerm0 = alpha[1]*(A[1]-A[0])/(2*w[0]) - alpha[1]*(A[1]-A[0])/(4*w[0]) \
-                           - alpha[1]*(A[1]-A[0])/(4*w[0])
-                    lagTerm1 = alpha[2]*(A[1]-A[0])/(2*w[1]) \
-                           - (alpha[2]*B_plus(mu_half) - 0.5*alpha[1])*(A[1]-A[0])/(2*w[1]) \
-                           - (alpha[2]*B_minus(mu_half) - 0.5*alpha[1])*(A[1]-A[0])/(2*w[1])
-                
-                    # source terms
-                    b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] \
-                     + alpha[0]*(A[1]-A[0])/(2*w[0])*psi_mu[iel]
-                    b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
-            
-            
-            
-                if iel == start:
-                    psi_minus0 = 1.
-                    psi_plus0 = 1.
+                b1 = (sigs*Phi_0[iel]+q)/2*V - mu[1]*(A[1]+A[0])*psi_x[1] \
+                      - (A[1]-A[0])/(2*w[1])*(alpha[2]*B_S(mu_half) - alpha[1]*B_S(mu_1))*psi_mu[iel]    
 
-                temp0 = b0 + lagTerm0 * psi_minus0
-                temp1 = b1 + lagTerm1 * psi_plus0
+            # final angular cell
+            elif n_mu == (self.quad.N_dir - 1):
+                a00 = 2*np.abs(mu[0])*A_out + alpha[1]*(A[1]-A[0])/(4*w[0]) + sigt*V
+                a01 = 0
+                a10 = 0
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*(A[1]-A[0])/(4*w[1]) + sigt*V    
+            
+                lagTerm00 = 0
+                lagTerm01 = 0
+                lagTerm10 = 0
+                lagTerm11 = 0
                 
-                psi_minus = (a11*temp0 - a01*temp1)/(a00*a11)
-                psi_plus  = (a00*temp1 - a10*temp0)/(a00*a11)
+                b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] \
+                    + alpha[0]*(A[1]-A[0])/(2*w[0])*psi_mu[iel]
+                b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
+
+            # other angular cells                
+            else:
+                # coefficients
+                a00 = 2*np.abs(mu[0])*A_out + alpha[1]*(A[1]-A[0])/(2*w[0]) + sigt*V
+                a01 = 0
+                a10 = 0
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*(A[1]-A[0])/(2*w[1]) + sigt*V
                 
-                err = np.sqrt((psi_minus - psi_minus0)**2 + (psi_plus - psi_plus0)**2)
+                lagTerm00 = alpha[1]*(A[1]-A[0])/(2*w[0]) - alpha[1]*(A[1]-A[0])/(4*w[0])
+                lagTerm01 = -1*alpha[1]*(A[1]-A[0])/(4*w[0])
+                lagTerm10 = -1*(alpha[2]*B_minus(mu_half) - 0.5*alpha[1])*(A[1]-A[0])/(2*w[1])
+                lagTerm11 = alpha[2]*(A[1]-A[0])/(2*w[1]) \
+                           - (alpha[2]*B_plus(mu_half) - 0.5*alpha[1])*(A[1]-A[0])/(2*w[1])
                 
-                psi_minus0 = psi_minus
-                psi_plus0 = psi_plus
-                
-                it1 +=1
-                print(it1)
-                if (n_mu == 0) and quadratic:
-                    psi_mu[iel] = psi_mu[iel]*B_S(mu_half) + psi_minus*B_minus(mu_half) \
-                                           + psi_plus*B_plus(mu_half)
-                else:
-                    psi_mu[iel] = psi_minus*B_minus(mu_half) + psi_plus*B_plus(mu_half)
-            '''
+                # source terms
+                b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] \
+                    + alpha[0]*(A[1]-A[0])/(2*w[0])*psi_mu[iel]
+                b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
+            
+            
+            
             psi_minus0 = self.psi[2*n_mu,iel]
             psi_plus0 = self.psi[2*n_mu+1,iel]
-             
+
+            temp0 = b0 + lagTerm00 * psi_minus0 + lagTerm01 * psi_plus0
+            temp1 = b1 + lagTerm10 * psi_minus0 + lagTerm11 * psi_plus0
                 
-            self.psi_minus = psi_minus
-            self.psi_plus = psi_plus
-            '''    
+            psi_minus = (a11*temp0 - a01*temp1)/(a00*a11)
+            psi_plus  = (a00*temp1 - a10*temp0)/(a00*a11)
+            
+                
+
+            if (n_mu == 0) and quadratic:
+                psi_mu[iel] = psi_mu[iel]*B_S(mu_half) + psi_minus*B_minus(mu_half) \
+                                           + psi_plus*B_plus(mu_half)
+            else:
+                psi_mu[iel] = psi_minus*B_minus(mu_half) + psi_plus*B_plus(mu_half) 
             
             # update angular flux
             if self.do_angular == True:
@@ -455,6 +455,11 @@ class Solve:
                 plt.xlabel("r (cm)")
                 plt.ylabel("Angular Flux")
 
+    def import_psi(self, file_name):
+        file1 = open(file_name, 'r')
+        data = np.genfromtxt(file1, delimiter = ',', dtype=float)
+        self.psi = data.T
+        file1.close()
 
 def getPsi(mu, bc):
     psi = 0.0
