@@ -280,16 +280,22 @@ class Solve:
                 # rewritten part
                 a00 = 2*np.abs(mu[0])*A_out + alpha[1]*dA/(2*w[0]) + sigt*V
                 a01 = 0
-                a10 = -1*alpha[1]*dA/(2*w[0])
-                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[0]) + sigt*V
+                a10 = -1*alpha[1]*dA/(2*w[1])
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[1]) + sigt*V
                 
                 lagTerm00 =  0.5*alpha[1]*dA/(2*w[0])
                 lagTerm01 = -0.5*alpha[1]*dA/(2*w[0])
                 b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] + alpha[0]*dA/(2*w[0])*psi_mu[iel]
                 
                 lagTerm10 = -0.5*alpha[1]*dA/(2*w[0]) - alpha[2]*dA*(1-np.sqrt(3))/(4*w[0])
-                lagTerm11 =  0.5*alpha[1]*dA/(2*w[0]) - alpha[2]*dA*(1+np.sqrt(3))/(4*w[0]) + alpha[2]*dA/(2*w[0])
+                lagTerm11 =  0.5*alpha[1]*dA/(2*w[0]) + alpha[2]*dA*(1-np.sqrt(3))/(4*w[0])
                 b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
+                
+                a10 = alpha[2]*dA/(2*w[1])*(1-np.sqrt(3))/2 - alpha[1]*dA/(4*w[1])
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[1])*(1+np.sqrt(3))/2 - alpha[1]*dA/(4*w[1]) + sigt*V
+                
+                lagTerm10 = 0
+                lagTerm11 = 0
                 '''
                 # first angular cell
                 if (n_mu == 0) and quadratic:
@@ -487,6 +493,7 @@ class Solve:
         plt.xlabel("r (cm)")
         plt.ylabel("Flux")
         plt.title("1D Spherical Transport Solution (PG Linear Discontinous-Diamond Difference)")
+        plt.show()
     
         
     def plotErr(self):
@@ -699,6 +706,10 @@ if working:
     sol8.solve()
     sol8.AnalyticalSolve(1000)
     sol8.plot()
+    print()
+    print(np.average(sol8.spatial_it))
+    print(np.min(sol8.spatial_it))
+    print(np.max(sol8.spatial_it))
     #sol8.plotErr()
     if everything:
         sol16 = Solve(R, I_reg, qd2, bc, matprops, False)
