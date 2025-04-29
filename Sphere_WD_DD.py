@@ -111,21 +111,11 @@ class Solve:
         # anisotropic flux boundary condition
         type1 = self.bc["type"][:-1]
         if (type1 == "anisotropic"):
-            '''
-            self.psi_bound[0] = 1 / (self.quad.w[0] * 2)
-            self.psi_bound[1] = self.psi_bound[0]
-            '''
             for i in range(int(self.quad.N_dir / 2)):
                 self.psi_bound[i] = getPsi(self.quad.mu[i],self.bc)
                 if self.psi_bound[i] < 0:
                     self.psi_bound[i] = 0
-            '''
-        sum1 = 0
-        for i in range(int(self.quad.N_dir / 2)):
-            sum1 += self.psi_bound[i] * self.quad.w[i] * self.quad.mu[i]
-        for i in range(int(self.quad.N_dir / 2)):
-            self.psi_bound[i] = -1 * self.psi_bound[i] / sum1
-            '''
+
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
         
@@ -385,8 +375,7 @@ def getPsi(mu, bc):
         psi = 0
     return psi    
         
-"""2.3130267806111715
-
+"""
 Radius:
 -------
 The outer radius of each material region is provided as a one-dimensional numpy array;

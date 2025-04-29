@@ -92,7 +92,8 @@ class Solve:
         
         # plot angular fluxes
         self.do_angular = do_angular
-        self.spatial_it = np.zeros((1, self.quad.N_cells))
+        self.spatial_it = np.zeros((self.mesh.I, self.quad.N_cells))
+        self.spectral_radius = np.zeros((self.mesh.I, self.quad.N_cells))
         
         # check for void
         self.do_balance = True 
@@ -106,7 +107,7 @@ class Solve:
         # angular fluxes
         if self.do_angular == True:
             self.psi = np.zeros((self.quad.N_dir,self.mesh.I))
-            self.psi_01 = np.ones((self.quad.N_dir,self.mesh.I))
+            self.psi_01 = np.zeros((self.quad.N_dir,self.mesh.I))
             # self.import_psi("output_psi.csv")
         
         # isotropic flux boundary condition
@@ -124,6 +125,10 @@ class Solve:
                 self.psi_bound[i] = getPsi(self.quad.mu[i],self.bc)
                 if self.psi_bound[i] < 0:
                     self.psi_bound[i] = 0
+        if self.do_angular == True:
+            if np.all(self.matprops['q'] == 0) and np.all(self.psi_bound[:self.quad.N_cells] == 0):
+                self.psi = np.random.rand(self.quad.N_dir,self.mesh.I)
+                self.do_balance = False
             '''
         sum1 = 0
         for i in range(int(self.quad.N_dir / 2)):
@@ -154,6 +159,8 @@ class Solve:
             if (it == 1):
                 err = 1
                 rho = 1
+                if np.all(self.matprops["sigs"]) == 0:
+                    err = tol * 0.9
             else:
                 delta = np.sqrt(np.sum((Phi_1 - Phi_0)**2) / np.sum(Phi_1**2))
                 rho = np.sum(np.abs(Phi_1 - Phi_0))/np.sum(np.abs(Phi_0 - Phi_m1))
@@ -163,9 +170,6 @@ class Solve:
             # next iteration
             Phi_m1 = Phi_0
             Phi_0 = Phi_1
-            if err > tol:
-                self.spatial_it = np.append(self.spatial_it, np.zeros(self.quad.N_cells))
-                self.spatial_it = np.reshape(self.spatial_it, (it+1, self.quad.N_cells))
             # balance parameter
             if self.do_balance:
                 bal = self.balance(Phi_0)
@@ -216,16 +220,14 @@ class Solve:
         
     # sweep function
     def sweep(self, n_mu, psi_mu, Phi_0, Phi_1, it):
-        err = 1
-        tol = 1e-6
-        
-        
+
         quadratic = False
         # direction quantities
         mu      = self.quad.mu[2*n_mu:2*n_mu+2]
         w       = self.quad.w[2*n_mu:2*n_mu+2]
         alpha   = self.quad.alpha[2*n_mu:2*n_mu+3]
         mu_half = self.quad.mu_half[2*n_mu+2]
+        
         
         # basis functions
         if (n_mu == 0) and quadratic:
@@ -235,59 +237,127 @@ class Solve:
         else:
             B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
             B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            B_S     = lambda u: 0*u
         
         
         
-        spatial_it = 0   
-        # sweep
-        while err > tol:
-            spatial_it += 1
+        # negative-mu sweeps
+        if (mu[0] < 0):
+            # angular flux at boundary
+            psi_x = np.copy(self.psi_bound[2*n_mu:2*n_mu+2])
+            # sweep order
+            start = self.mesh.I-1
+            stop = -1
+            inc = -1
             
-            # negative-mu sweeps
+        # positive-mu sweeps
+        if (mu[0] > 0):
+            # angular flux at origin
+            psi_x = self.psi_0*np.ones(2)
+            # sweep order
+            start = 0
+            stop = self.mesh.I
+            inc = 1
+            
+        for iel in range(start, stop, inc):
+            
+            # cell properties
+            A     = self.mesh.A[iel:iel+2] 
+            dA = A[1] - A[0]
             if (mu[0] < 0):
-                # angular flux at boundary
-                psi_x = np.copy(self.psi_bound[2*n_mu:2*n_mu+2])
-                # sweep order
-                start = self.mesh.I-1
-                stop = -1
-                inc = -1
-            
-            # positive-mu sweeps
+                A_out = A[0]
             if (mu[0] > 0):
-                # angular flux at origin
-                psi_x = self.psi_0*np.ones(2)
-                # sweep order
-                start = 0
-                stop = self.mesh.I
-                inc = 1
+                A_out = A[1]
+            V     = self.mesh.V[iel]
+            matID = self.mesh.matID[iel]
+            sigt  = self.matprops["sigt"][matID]
+            sigs  = self.matprops["sigs"][matID]
+            q     = self.matprops["q"][matID]
             
-            for iel in range(start, stop, inc):
-                # cell properties
-                A     = self.mesh.A[iel:iel+2] 
-                dA = A[1] - A[0]
-                if (mu[0] < 0):
-                    A_out = A[0]
-                if (mu[0] > 0):
-                    A_out = A[1]
-                V     = self.mesh.V[iel]
-                matID = self.mesh.matID[iel]
-                sigt  = self.matprops["sigt"][matID]
-                sigs  = self.matprops["sigs"][matID]
-                q     = self.matprops["q"][matID]
+            spatial_it = 0
+            spatial_it_mat = self.spatial_it
+            spectral_radius = self.spectral_radius
+            err = 1
+            tol = 1e-6
+            # angular cell midpoint
+            mu_1 = 0.5*(mu[0]+mu[1])
+
+            psi_minus0 = self.psi[2*n_mu,iel]
+            psi_plus0 = self.psi[2*n_mu+1,iel]
+            psi_m0 = psi_minus0
+            psi_p0 = psi_plus0
+            #  psi_minus0, psi_plus0 = 0,0
+            while err > tol:
+                spatial_it += 1
             
-                # rewritten part
+                '''
+                # new testing part
                 a00 = 2*np.abs(mu[0])*A_out + alpha[1]*dA/(2*w[0]) + sigt*V
                 a01 = 0
-                a10 = -1*alpha[1]*dA/(2*w[0])
-                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[0]) + sigt*V
+                a10 = -1*alpha[1]*dA/(2*w[1])
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[1]) + sigt*V
                 
                 lagTerm00 =  0.5*alpha[1]*dA/(2*w[0])
                 lagTerm01 = -0.5*alpha[1]*dA/(2*w[0])
                 b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] + alpha[0]*dA/(2*w[0])*psi_mu[iel]
                 
                 lagTerm10 = -0.5*alpha[1]*dA/(2*w[0]) - alpha[2]*dA*(1-np.sqrt(3))/(4*w[0])
-                lagTerm11 =  0.5*alpha[1]*dA/(2*w[0]) - alpha[2]*dA*(1+np.sqrt(3))/(4*w[0]) + alpha[2]*dA/(2*w[0])
+                lagTerm11 =  0.5*alpha[1]*dA/(2*w[0]) + alpha[2]*dA*(1-np.sqrt(3))/(4*w[0])
                 b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
+                
+                a10 = alpha[2]*dA/(2*w[1])*(1-np.sqrt(3))/2 - alpha[1]*dA/(4*w[1])
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[1])*(1+np.sqrt(3))/2 - alpha[1]*dA/(4*w[1]) + sigt*V
+                
+                lagTerm10 = 0
+                lagTerm11 = 0
+                '''
+                psi_minus = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] \
+                    + dA/(2*w[0])*(alpha[1]*((1-B_minus(mu_1))*psi_minus0 - B_plus(mu_1)*psi_plus0 \
+                    - B_S(mu_1)*psi_mu[iel]) + alpha[0]*psi_mu[iel])
+                psi_minus /= 2*np.abs(mu[0])*A_out + alpha[1]*dA/(2*w[0]) + sigt*V
+                
+                psi_plus = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1] \
+                        -1*dA/(2*w[1])*((alpha[2]*B_minus(mu_half) - alpha[1]*B_minus(mu_1))*psi_minus \
+                                +(alpha[2]*B_S(mu_half) - alpha[1]*B_S(mu_1))*psi_mu[iel])
+                psi_plus /= 2*np.abs(mu[1])*A_out + dA/(2*w[1])*(alpha[2]*B_plus(mu_half) - alpha[1]*B_plus(mu_1)) + sigt*V
+                
+                ''' PG, Step mix
+                a10 = dA/(2*w[1])*(alpha[2]*(1-np.sqrt(3))/2-alpha[1])
+                a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[1])*(1+np.sqrt(3))/2 + sigt*V
+                
+                lagTerm10 = -0.5*alpha[1]*dA/(2*w[0])
+                lagTerm11 =  0.5*alpha[1]*dA/(2*w[0])
+                '''
+                '''
+                if n_mu == 0:
+                    a00 = 2*np.abs(mu[0])*A_out + alpha[1]*dA/(w[0]) + sigt*V
+                    a01 = 0
+                    a10 = dA/(2*w[1])*(alpha[2]*(1-np.sqrt(3))/2 - 2*alpha[1])
+                    a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[0])*(1+np.sqrt(3))/2 + sigt*V
+                    
+                    lagTerm00 =  1.5*alpha[1]*dA/(2*w[0])
+                    lagTerm01 = -0.5*alpha[1]*dA/(2*w[0])
+                    b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] + alpha[1]*dA/(2*w[0])*psi_mu[iel]
+                    
+                    lagTerm10 = -1.5*alpha[1]*dA/(2*w[0])
+                    lagTerm11 =  0.5*alpha[1]*dA/(2*w[0])
+                    b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1] + alpha[1]*dA/(2*w[1])*psi_mu[iel]
+                '''
+                '''
+                if n_mu == (self.quad.N_cells - 1):
+                    a00 = 2*np.abs(mu[0])*A_out + alpha[1]*dA/(2*w[0]) + sigt*V
+                    a01 = 0
+                    a10 = -1*alpha[1]*dA/(2*w[1])
+                    a11 = 2*np.abs(mu[1])*A_out + alpha[2]*dA/(2*w[0]) + sigt*V
+                    
+                    lagTerm00 =  0.5*alpha[1]*dA/(2*w[0])
+                    lagTerm01 = -0.5*alpha[1]*dA/(2*w[0])
+                    b0 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] + alpha[0]*dA/(2*w[0])*psi_mu[iel]
+                    
+                    lagTerm10 = -0.5*alpha[1]*dA/(2*w[1]) - alpha[2]*dA/w[1]*(1-np.sqrt(3))/2
+                    lagTerm11 =  alpha[2]*dA/(2*w[1]) + alpha[1]*dA/(4*w[1]) - alpha[2]*dA/(2*w[1])*(1+np.sqrt(3))/2
+                    b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
+                '''
                 '''
                 # first angular cell
                 if (n_mu == 0) and quadratic:
@@ -349,59 +419,58 @@ class Solve:
                         + alpha[0]*(A[1]-A[0])/(2*w[0])*psi_mu[iel]
                     b1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1]
                 '''
-                
-                psi_minus0 = self.psi[2*n_mu,iel]
-                psi_plus0 = self.psi[2*n_mu+1,iel]
-
+                '''
                 temp0 = b0 + lagTerm00 * psi_minus0 + lagTerm01 * psi_plus0
                 temp1 = b1 + lagTerm10 * psi_minus0 + lagTerm11 * psi_plus0
                 
                 psi_minus = (a11*temp0 - a01*temp1)/(a00*a11 - a01*a10)
                 psi_plus  = (a00*temp1 - a10*temp0)/(a00*a11 - a01*a10)
+                '''
                 
-                # update ingoing fluxes
-                psi_x[0] = 2*psi_minus - psi_x[0]
-                psi_x[1] = 2*psi_plus  - psi_x[1]
                 
                 
                 # update angular flux
                 if self.do_angular == True:
-                    self.psi_01[2*n_mu,iel]   = self.psi[2*n_mu,iel]
-                    self.psi_01[2*n_mu+1,iel] = self.psi[2*n_mu+1,iel]
                     self.psi[2*n_mu,iel]   = psi_minus
                     self.psi[2*n_mu+1,iel] = psi_plus
                 
-                psi = np.copy(self.psi)
-                psi_01 = np.copy(self.psi_01)
+                if np.all(self.matprops['q'] == 0) and np.all(self.psi_bound[:self.quad.N_cells] == 0):
+                    err0 = err
+                    err = abs(psi_plus) + abs(psi_minus)
+                    if spatial_it > 1:
+                        spect_rad0 = spect_rad
+                    spect_rad = err/err0
+                    
+                    print(iel, n_mu, err)
+                    if spatial_it > 20:
+                        print(psi_m0, psi_p0)
+                        err = 0
+                else:
+                    err = np.sqrt((psi_minus0 - psi_minus)**2 + (psi_plus0 - psi_plus)**2) / np.sqrt(psi_plus**2 + psi_minus**2)
                 
+                psi_minus0 = psi_minus
+                psi_plus0 = psi_plus
                 
+            if (n_mu == 0) and quadratic:
+                psi_mu[iel] = psi_mu[iel]*B_S(mu_half) + psi_minus*B_minus(mu_half) \
+                        + psi_plus*B_plus(mu_half)
+            else:
+                psi_mu[iel] = psi_minus*B_minus(mu_half) + psi_plus*B_plus(mu_half) 
+            
+            # add flux contribution
+            Phi_1[iel] += (psi_minus*w[0] + psi_plus*w[1])
         
-        
-                
             
-                
-            
-                
-                
-            
-            err = np.max(np.sqrt((psi_01[2*n_mu,:] - psi[2*n_mu,:])**2 + (psi_01[2*n_mu+1,:] - psi[2*n_mu+1,:]) ** 2) \
-                    /(np.sqrt(psi[2*n_mu,:]**2 + psi[2*n_mu+1,:]**2)))
-
+            # update ingoing fluxes
+            psi_x[0] = 2*psi_minus - psi_x[0]
+            psi_x[1] = 2*psi_plus  - psi_x[1]
             # err = tol * 0.9
-        self.spatial_it[it - 1, n_mu] = spatial_it   
+            spatial_it_mat[iel, n_mu] += spatial_it   
+            spectral_radius[iel, n_mu] = spect_rad
         
-        
-        # add flux contribution
-        Phi_1[:] += (psi[2*n_mu,:]*w[0] + psi[2*n_mu+1,:]*w[1])
-        
-        if (n_mu == 0) and quadratic:
-            psi_mu[:] = psi_mu[:]*B_S(mu_half) + psi[2*n_mu,:]*B_minus(mu_half) \
-                        + psi[2*n_mu+1,iel]*B_plus(mu_half)
-        else:
-            psi_mu[:] = psi[2*n_mu,:]*B_minus(mu_half) + psi[2*n_mu+1,:]*B_plus(mu_half) 
-        
-        
-        
+
+        self.spatial_it = spatial_it_mat
+        self.spectral_radius = spectral_radius
         # positive-mu sweep
         if (mu[0] > 0):
             # boundary flux
@@ -483,6 +552,7 @@ class Solve:
         plt.xlabel("r (cm)")
         plt.ylabel("Flux")
         plt.title("1D Spherical Transport Solution (PG Linear Discontinous-Diamond Difference)")
+        plt.show()
     
         
     def plotErr(self):
@@ -695,6 +765,9 @@ if working:
     sol8.solve()
     sol8.AnalyticalSolve(1000)
     sol8.plot()
+    print(np.average(sol8.spatial_it))
+    print(np.min(sol8.spatial_it))
+    print(np.max(sol8.spatial_it))
     #sol8.plotErr()
     if everything:
         sol16 = Solve(R, I_reg, qd2, bc, matprops, False)
