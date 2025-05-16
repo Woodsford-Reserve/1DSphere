@@ -6,31 +6,7 @@ Created on Mon Feb 12 20:29:37 2024
 """
 
 import numpy as np
-
-
-
-# mesh class
-class Mesh:
-    def __init__(self, R, I_reg):
-        # number of cells and regions 
-        self.I = np.sum(I_reg)
-        N_reg = len(I_reg)
-        
-        # add origin
-        self.R = np.insert(R,0,0.)
-        
-        # cell widths and centers
-        self.dr = np.array([])
-        for nr in range(N_reg):
-            dr_reg = (self.R[nr+1] - self.R[nr])/I_reg[nr]
-            self.dr = np.concatenate((self.dr, np.repeat(dr_reg, I_reg[nr])))
-        self.r = np.cumsum(self.dr) - self.dr/2
-        
-        # cell areas and volumes
-        self.A = 4*np.pi*(self.r + self.dr/2)**2
-        self.A = np.insert(self.A,0,0.)
-        self.V = 4*np.pi/3*((self.r + self.dr/2)**3 - (self.r - self.dr/2)**3)
-   
+import matplotlib.pyplot as plt
                 
         
 # quadrature class
@@ -79,99 +55,468 @@ class Quad:
         
 # solver class
 class Spectral_Radius:
-    def __init__(self, R, I_reg, quad_dict):
+    def __init__(self, quad_dict):
         # initialization
-        self.mesh = Mesh(R, I_reg)
         self.quad = Quad(quad_dict)
         
         
     # solver 
-    def eigenvalues(self, sigt):
-        # eigenvalues
-        eigenvalues = np.zeros((self.mesh.I, self.quad.N_cells, 2))
+    def eigenvalues(self, sig=1e-8, do_quadratic=True, do_plot=False, do_last_cell=False):
         
-        # loop over directions
+        ########################
+        ########################
+        print("\nStep (Half):")
+        ########################
+        ########################
+        
+        # spectral radii
+        rho_step_half = np.zeros(self.quad.N_cells)
+        
+        # loop over cells
         for n_mu in range(self.quad.N_cells):
             # direction quantities
             mu      = self.quad.mu[2*n_mu:2*n_mu+2]
-            w       = self.quad.w[2*n_mu:2*n_mu+2]
-            alpha   = self.quad.alpha[2*n_mu:2*n_mu+3]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
             mu_half = self.quad.mu_half[2*n_mu+2]
-            beta    = self.quad.beta[2*n_mu:2*n_mu+2]
             
-            # negative-mu sweeps
-            if (mu[0] < 0):
-                # sweep order
-                start = self.mesh.I-1
-                stop = -1
-                inc = -1
-                
-            # positive-mu sweeps
-            if (mu[0] > 0):
-                # sweep order
-                start = 0
-                stop = self.mesh.I
-                inc = 1
-    
             # basis functions
-            if (n_mu == 0):
+            if do_quadratic and (n_mu == 0):
                 B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
-                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))
+                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))              
             else:
                 B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
                 B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
             
-            # sweep
-            for iel in range(start, stop, inc):
-                # cell properties
-                A = self.mesh.A[iel:iel+2] 
-                if (mu[0] < 0):
-                    A_out = A[0]
-                if (mu[0] > 0):
-                    A_out = A[1]
-                V = self.mesh.V[iel]
+            # step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 1
+            A[0,1] = 0
+            A[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            A[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+                       
+            # eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            rho_step_half[n_mu] = np.max(np.abs(eigvals))
+            
+            # print eigenvalues
+            if (n_mu == 0) or (n_mu == int(self.quad.N_cells / 2) - 1) or \
+                    (n_mu == int(self.quad.N_cells / 2)) or (n_mu == self.quad.N_cells-2):
+                print(n_mu+1, "/", self.quad.N_cells, ":", eigvals)
                 
-                # matrices
-                A_wd = np.zeros((2,2))
-                B_wd = np.zeros((2,2))
-                B_pg = np.zeros((2,2))
                 
-                # weighted diamond
-                A_wd[0,0] = 2.*np.abs(mu[0])*A_out
-                A_wd[1,1] = 2.*np.abs(mu[1])*A_out
-                B_wd[0,0] = alpha[1]*(A[1]-A[0])/(2*beta[0]*w[0])
-                B_wd[1,1] = alpha[2]*(A[1]-A[0])/(2*beta[1]*w[1])
-                
-                # first angular cell
-                if (n_mu == 0):
-                    # angular cell midpoint
-                    mu_1 = 0.5*(mu[0]+mu[1])
-                    
-                    # Petrov-Galerkin
-                    B_pg[0,0] = alpha[1]*(A[1]-A[0])/(2*w[0])*B_minus(mu_1)
-                    B_pg[0,1] = alpha[1]*(A[1]-A[0])/(2*w[0])*B_plus(mu_1)
-                    B_pg[1,0] = (alpha[2]*B_minus(mu_half) - alpha[1]*B_minus(mu_1))*(A[1]-A[0])/(2*w[1])
-                    B_pg[1,1] = (alpha[2]*B_plus(mu_half) - alpha[1]*B_plus(mu_1))*(A[1]-A[0])/(2*w[1])
-                         
-                # other angular cells
-                else:
-                    # Petrov-Galerkin
-                    B_pg[0,0] = alpha[1]*(A[1]-A[0])/(4*w[0])
-                    B_pg[0,1] = alpha[1]*(A[1]-A[0])/(4*w[0])
-                    B_pg[1,0] = (alpha[2]*B_minus(mu_half) - 0.5*alpha[1])*(A[1]-A[0])/(2*w[1])
-                    B_pg[1,1] = (alpha[2]*B_plus(mu_half) - 0.5*alpha[1])*(A[1]-A[0])/(2*w[1])
-                
-                # eigenvalues
-                matrix = np.linalg.inv(A_wd + B_wd + sigt*V*np.eye(2)) @ (B_wd - B_pg)
-                eigenvalues[iel,n_mu,:] = np.abs(np.linalg.eigvals(matrix))
-                
-        # return spectral radius
-        rho = np.max(eigenvalues)
-        print("Spetral Radius:", rho)
-        return rho
-
+        ########################
+        ########################
+        print("\nStep (Full):")
+        ########################
+        ########################
         
+        # spectral radii
+        rho_step_full = np.zeros(self.quad.N_cells)
+        
+        # loop over cells
+        for n_mu in range(self.quad.N_cells-1):
+            # direction quantities
+            mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
+            mu_half = self.quad.mu_half[2*n_mu+2]
+            
+            # basis functions
+            if do_quadratic and (n_mu == 0):
+                B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
+                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))              
+            else:
+                B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+                B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            
+            # step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 1
+            A[0,1] = 0
+            A[1,0] = -alpha[0]
+            A[1,1] =  alpha[1]
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+                       
+            # eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            rho_step_full[n_mu] = np.max(np.abs(eigvals))
+            
+            # print eigenvalues
+            if (n_mu == 0) or (n_mu == int(self.quad.N_cells / 2) - 1) or \
+                    (n_mu == int(self.quad.N_cells / 2)) or (n_mu == self.quad.N_cells-2):
+                print(n_mu+1, "/", self.quad.N_cells, ":", eigvals)
+                
+        # last cell is not invertible
+        rho_step_full[-1] = 1
+                
+                
+        ########################
+        ########################
+        print("\nDiamond (Half):")
+        ########################
+        ########################
+        
+        # spectral radii
+        rho_DD_half = np.zeros(self.quad.N_cells)
+        
+        # loop over cells
+        for n_mu in range(self.quad.N_cells):
+            # direction quantities
+            mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
+            mu_half = self.quad.mu_half[2*n_mu+2]
+            
+            # basis functions
+            if do_quadratic and (n_mu == 0):
+                B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
+                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))              
+            else:
+                B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+                B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            
+            # step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 2
+            A[0,1] = 0
+            A[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            A[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+                       
+            # eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            rho_DD_half[n_mu] = np.max(np.abs(eigvals))
+            
+            # print eigenvalues
+            if (n_mu == 0) or (n_mu == int(self.quad.N_cells / 2) - 1) or \
+                    (n_mu == int(self.quad.N_cells / 2)) or (n_mu == self.quad.N_cells-2):
+                print(n_mu+1, "/", self.quad.N_cells, ":", eigvals)
+                
+                
+        ########################
+        ########################
+        print("\nDiamond (Full):")
+        ########################
+        ########################
+        
+        # spectral radii
+        rho_DD_full = np.zeros(self.quad.N_cells)
+        
+        # loop over cells
+        for n_mu in range(self.quad.N_cells-1):
+            # direction quantities
+            mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
+            mu_half = self.quad.mu_half[2*n_mu+2]
+            
+            # basis functions
+            if do_quadratic and (n_mu == 0):
+                B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
+                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))              
+            else:
+                B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+                B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            
+            # step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 2
+            A[0,1] = 0
+            A[1,0] = -2*(alpha[0] + alpha[1])
+            A[1,1] = 2*alpha[1]
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+                       
+            # eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            rho_DD_full[n_mu] = np.max(np.abs(eigvals))
+            
+            # print eigenvalues
+            if (n_mu == 0) or (n_mu == int(self.quad.N_cells / 2) - 1) or \
+                    (n_mu == int(self.quad.N_cells / 2)) or (n_mu == self.quad.N_cells-2):
+                print(n_mu+1, "/", self.quad.N_cells, ":", eigvals)
+                
+        # last cell is not invertible
+        rho_DD_full[-1] = 1
+                
+                
+        ###################################
+        ###################################
+        print("\nWeighted Diamond (Half):")
+        ###################################
+        ###################################
+        
+        # spectral radii
+        rho_WD_half = np.zeros(self.quad.N_cells)
+        
+        # loop over cells
+        for n_mu in range(self.quad.N_cells):
+            # direction quantities
+            mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
+            mu_half = self.quad.mu_half[2*n_mu+2]
+            beta    = self.quad.beta[2*n_mu]
+            
+            # basis functions
+            if do_quadratic and (n_mu == 0):
+                B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
+                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))              
+            else:
+                B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+                B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            
+            # step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 1 / beta
+            A[0,1] = 0
+            A[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            A[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+                       
+            # eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            rho_WD_half[n_mu] = np.max(np.abs(eigvals))
+            
+            # print eigenvalues
+            if (n_mu == 0) or (n_mu == int(self.quad.N_cells / 2) - 1) or \
+                    (n_mu == int(self.quad.N_cells / 2)) or (n_mu == self.quad.N_cells-2):
+                print(n_mu+1, "/", self.quad.N_cells, ":", eigvals)
+                
+                
+        ###################################
+        ###################################
+        print("\nWeighted Diamond (Full):")
+        ###################################
+        ###################################
+        
+        # spectral radii
+        rho_WD_full = np.zeros(self.quad.N_cells)
+        
+        # loop over cells
+        for n_mu in range(self.quad.N_cells-1):
+            # direction quantities
+            mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
+            mu_half = self.quad.mu_half[2*n_mu+2]
+            beta    = self.quad.beta[2*n_mu:2*n_mu+2]
+            
+            # basis functions
+            if do_quadratic and (n_mu == 0):
+                B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
+                B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))              
+            else:
+                B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+                B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            
+            # step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 1 / beta[0]
+            A[0,1] = 0
+            A[1,0] = -(1/beta[0])*alpha[0] - (1-beta[1])/(beta[0]*beta[1])*alpha[1]
+            A[1,1] = (1/beta[1])*alpha[1]
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+                       
+            # eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            rho_WD_full[n_mu] = np.max(np.abs(eigvals))
+            
+            # print eigenvalues
+            if (n_mu == 0) or (n_mu == int(self.quad.N_cells / 2) - 1) or \
+                    (n_mu == int(self.quad.N_cells / 2)) or (n_mu == self.quad.N_cells-2):
+                print(n_mu+1, "/", self.quad.N_cells, ":", eigvals)
+                
+        # last cell is not invertible
+        rho_WD_full[-1] = 1
+                
+        # plots
+        if do_plot:
+            # mu
+            mu = np.linspace(-1,1,self.quad.N_cells+1)
+            mu = 0.5*(mu[:-1] + mu[1:])
+            
+            # step
+            plt.figure(1)
+            plt.semilogy(mu[:-1], rho_step_half[:-1], 'k')
+            plt.semilogy(mu[:-1], rho_step_full[:-1], 'r--')
+            plt.xlabel('\u03BC')
+            plt.ylabel('\u03C1')
+            plt.title("Step Spectral Radii ({:n} Angular Cells)".format(self.quad.N_cells))
+            plt.legend(["Half","Full"])
+            
+            # diamond
+            plt.figure(2)
+            plt.semilogy(mu[:-1], rho_DD_half[:-1], 'k')
+            plt.semilogy(mu[:-1], rho_DD_full[:-1], 'r--')
+            plt.xlabel('\u03BC')
+            plt.ylabel('\u03C1')
+            plt.title("Diamond Spectral Radii ({:n} Angular Cells)".format(self.quad.N_cells))
+            plt.legend(["Half","Full"])
+            
+            # weighted diamond
+            plt.figure(3)
+            plt.semilogy(mu[:-1], rho_WD_half[:-1], 'k')
+            plt.semilogy(mu[:-1], rho_WD_full[:-1], 'r--')
+            plt.xlabel('\u03BC')
+            plt.ylabel('\u03C1')
+            plt.title("Weighted Diamond Spectral Radii ({:n} Angular Cells)".format(self.quad.N_cells))
+            plt.legend(["Half","Full"])
+         
+            
+         
+        # mu = -1
+        print()
+        ind = np.where(rho_DD_half - rho_step_half < 0.)[0]
+        print("\n\nHalf-cell diamond difference outperforms half-cell step\n",
+              "in the following cells:", ind+1)
+        
+        # mu = 1
+        ind = np.where(rho_step_full - rho_step_half < 0.)[0]
+        print("\nFull-cell step outperforms half-cell step\n",
+              "in the following cells:", ind+1)
+        
+        
+        
+        # final cell
+        if do_last_cell:
+            n_mu = self.quad.N_cells-1
+            
+            # direction quantities
+            mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+            alpha   = self.quad.alpha[2*n_mu+1:2*n_mu+3]
+            mu_m    = self.quad.mu_half[2*n_mu+1]
+            mu_half = self.quad.mu_half[2*n_mu+2]
+            beta    = self.quad.beta[2*n_mu:2*n_mu+2]
+            
+            # basis functions
+            B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+            B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+            
+            # Petrov-Galerkin matrix
+            B = np.zeros((2,2))
+            B[0,0] = B_minus(mu_m)
+            B[0,1] = B_plus(mu_m)
+            B[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            B[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # half-cell step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 1
+            A[0,1] = 0
+            A[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            A[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # half-cell step preconditioned matrix eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            print("\n\n\nHalf-cell Step last cell eigenvalues:", eigvals)
+            
+            # full-cell step matrix
+            A = np.zeros((2,2))
+            A[0,0] = 1
+            A[0,1] = 0
+            A[1,0] = -alpha[0]
+            A[1,1] =  alpha[1]
+            
+            # full-cell step preconditioned matrix eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            print("\nFull-cell Step last cell eigenvalues:", eigvals)
+            
+            # half-cell diamond
+            A = np.zeros((2,2))
+            A[0,0] = 2
+            A[0,1] = 0
+            A[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            A[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # half-cell diamond preconditioned matrix eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            print("\nHalf-cell Diamond last cell eigenvalues:", eigvals)
+            
+            # full-cell diamond
+            A = np.zeros((2,2))
+            A[0,0] = 2
+            A[0,1] = 0
+            A[1,0] = -2*(alpha[0] + alpha[1])
+            A[1,1] = 2*alpha[1]
+            
+            # full-cell diamond preconditioned matrix eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            print("\nFull-cell Diamond last cell eigenvalues:", eigvals)
+            
+            # half-cell weighted diamond
+            A = np.zeros((2,2))
+            A[0,0] = 1 / beta[0]
+            A[0,1] = 0
+            A[1,0] = alpha[1]*B_minus(mu_half) - alpha[0]*B_minus(mu_m)
+            A[1,1] = alpha[1]*B_plus(mu_half)  - alpha[0]*B_plus(mu_m)
+            
+            # half-cell weighted diamond preconditioned matrix eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            print("\nHalf-cell Weighted Diamond last cell eigenvalues:", eigvals)
+            
+            # full-cell weighted diamond
+            A = np.zeros((2,2))
+            A[0,0] = 1 / beta[0]
+            A[0,1] = 0
+            A[1,0] = -(1/beta[0])*alpha[0] - (1-beta[1])/(beta[0]*beta[1])*alpha[1]
+            A[1,1] = (1/beta[1])*alpha[1]
+            
+            # full-cell weighted diamond preconditioned matrix eigenvalues
+            C = np.linalg.inv(A + sig*np.eye(2)) @ (A - B)
+            eigvals = np.linalg.eigvals(C)
+            print("\nFull-cell Weighted Diamond last cell eigenvalues:", eigvals)
 
+    
+        
 """
 Radius:
 -------
@@ -193,17 +538,25 @@ S2), and the formula for the alpha coefficients specified by "alpha" (this will 
 """                                                                           
 
 
+# quad_dict = {"directions":128,
+#              "quadrature":"gauss",
+#                   "alpha":"approximate"}
 
-R = np.array([1.])
-I_reg = np.array([40])
+# sol = Spectral_Radius(quad_dict)
+# sol.eigenvalues(sig=0., do_quadratic=True, do_plot=True, do_last_cell=True)
 
-bc_dict = {"type":"isotropic","value":0.}
+n = 20
+N, x = np.zeros(n, dtype=int), np.zeros(n)
 
-sigt = 1.
-
-quad_dict = {"directions":4,
-             "quadrature":"gauss",
-                  "alpha":"approximate"}
-
-sol = Spectral_Radius(R, I_reg, quad_dict)
-sol.eigenvalues(sigt)
+for i in range(n):
+    N[i] = int(8*(2**i))
+    
+    quad_dict = {"directions":N[i],
+                 "quadrature":"gauss",
+                      "alpha":"approximate"}
+    quad = Quad(quad_dict)
+    
+    x[i] = quad.alpha[-2] / quad.w[-1]
+    
+plt.figure(1)
+plt.plot(N,x)

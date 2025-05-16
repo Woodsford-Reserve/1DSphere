@@ -7,6 +7,7 @@ Created on Mon Feb 12 20:29:37 2024
 
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 
 
@@ -121,7 +122,7 @@ class Solve:
             self.psi_0, psi_mu = self.start(Phi_0)
             
             # sweeps
-            for n_mu in range(self.quad.N_cells):
+            for n_mu in tqdm(range(self.quad.N_cells),desc='Sweeping'):
                 Phi_1, psi_mu = self.sweep(n_mu, psi_mu, Phi_0, Phi_1)
                 
             # calculate error
@@ -142,8 +143,11 @@ class Solve:
         
         # balance parameter
         if self.do_balance:
-            bal = self.balance()
+            bal, leak = self.balance()
             print("Balance: "+str(bal))
+            
+            # return leakage
+            return leak
     
 
     # starting direction
@@ -159,7 +163,7 @@ class Solve:
                 psi_x = 0
             
         # starting direction sweep
-        psi_mu = np.zeros(self.mesh.I) 
+        psi_mu     = np.zeros(self.mesh.I) 
         for iel in range(self.mesh.I-1,-1,-1):
             # cell properties
             dr    = self.mesh.dr[iel]
@@ -177,25 +181,21 @@ class Solve:
             
         # return origin and starting direction angular flux
         psi_0 = psi_x
-        return psi_0, psi_mu 
+        return psi_0, psi_mu
 
         
     # sweep function
     def sweep(self, n_mu, psi_mu, Phi_0, Phi_1):
         # direction quantities
         mu      = self.quad.mu[2*n_mu:2*n_mu+2]
+        dmu     = mu[1] - mu[0]
         w       = self.quad.w[2*n_mu:2*n_mu+2]
         alpha   = self.quad.alpha[3*n_mu:3*n_mu+4]
         mu_half = self.quad.mu_half[n_mu:n_mu+2]
         
         # basis functions
-        if (n_mu == 0):
-            B_S     = lambda u: ((u-mu[0])*(u-mu[1]))/((-1-mu[0])*(-1-mu[1]))
-            B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
-            B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))
-        else:
-            B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
-            B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
+        B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
+        B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
         
         # negative-mu sweeps
         if (mu[0] < 0):
@@ -229,38 +229,19 @@ class Solve:
             sigs  = self.matprops["sigs"][matID]
             q     = self.matprops["q"][matID]
             
-            # first angular cell
-            if (n_mu == 0):
-                # coefficients
-                a00 = -2*mu[0]*A[0]*w[0] + alpha[3]*(A[1]-A[0])/2.*B_minus(mu_half[1]) + sigt*V*w[0]
-                a01 = -2*mu[1]*A[0]*w[1] + alpha[3]*(A[1]-A[0])/2.*B_plus(mu_half[1]) + sigt*V*w[1]
-                a10 = -2*mu[0]**2*A[0]*w[0] + (mu_half[1]*alpha[3]*B_minus(mu_half[1]) - alpha[1]*w[0]) \
-                      *(A[1]-A[0])/2. + mu[0]*sigt*V*w[0]
-                a11 = -2*mu[1]**2*A[0]*w[1] + (mu_half[1]*alpha[3]*B_plus(mu_half[1]) - alpha[2]*w[1]) \
-                      *(A[1]-A[0])/2. + mu[1]*sigt*V*w[1]
-                    
-                # source terms
-                b0 = (sigs*Phi_0[iel]+q)/2.*(w[0]+w[1])*V - alpha[3]*(A[1]-A[0])/2.*B_S(mu_half[1])*psi_mu[iel] \
-                     - (A[1]+A[0])*(mu[0]*psi_x[0]*w[0] + mu[1]*psi_x[1]*w[1])
-                b1 = (sigs*Phi_0[iel]+q)/2.*(mu[0]*w[0]+mu[1]*w[1])*V - mu_half[1]*alpha[3]*(A[1]-A[0])/2. \
-                     *B_S(mu_half[1])*psi_mu[iel] - (A[1]+A[0])*(mu[0]**2*psi_x[0]*w[0] + mu[1]**2*psi_x[1]*w[1])
-            
-            # other angular cells
-            else:
-                # coefficients
-                a00 = 2*np.abs(mu[0])*A_out*w[0] + alpha[3]*B_minus(mu_half[1])*(A[1]-A[0])/2. + sigt*V*w[0]
-                a01 = 2*np.abs(mu[1])*A_out*w[1] + alpha[3]*B_plus(mu_half[1])*(A[1]-A[0])/2. + sigt*V*w[1]
-                a10 = 2*np.abs(mu[0])*mu[0]*A_out*w[0] + (mu_half[1]*alpha[3]*B_minus(mu_half[1]) - alpha[1]*w[0]) \
-                      *(A[1]-A[0])/2. + mu[0]*sigt*V*w[0]
-                a11 = 2*np.abs(mu[1])*mu[1]*A_out*w[1] + (mu_half[1]*alpha[3]*B_plus(mu_half[1]) - alpha[2]*w[1]) \
-                      *(A[1]-A[0])/2. + mu[1]*sigt*V*w[1]
-                    
-                # source terms
-                b0 = (sigs*Phi_0[iel]+q)/2.*(w[0]+w[1])*V + alpha[0]*(A[1]-A[0])/2.*psi_mu[iel] \
-                     + (A[1]+A[0])*(np.abs(mu[0])*psi_x[0]*w[0] + np.abs(mu[1])*psi_x[1]*w[1])
-                b1 = (sigs*Phi_0[iel]+q)/2.*(mu[0]*w[0]+mu[1]*w[1])*V + mu_half[0]*alpha[0]*(A[1] \
-                     - A[0])/2.*psi_mu[iel] + (A[1]+A[0])*(np.abs(mu[0])*mu[0]*psi_x[0]*w[0] \
-                     + np.abs(mu[1])*mu[1]*psi_x[1]*w[1]) 
+            # coefficients
+            a00 = 2*np.abs(mu[0])*A_out + (A[1]-A[0])/2.*(alpha[3]/w[0]*B_minus(mu_half[1])**2 \
+                                             + alpha[1]/dmu) + sigt*V
+            a01 = (A[1]-A[0])/2.*(alpha[3]/w[0]*B_minus(mu_half[1])*B_plus(mu_half[1]) + alpha[2]/dmu)
+            a10 = (A[1]-A[0])/2.*(alpha[3]/w[0]*B_minus(mu_half[1])*B_plus(mu_half[1]) - alpha[1]/dmu)
+            a11 = 2*np.abs(mu[1])*A_out + (A[1]-A[0])/2.*(alpha[3]/w[0]*B_plus(mu_half[1])**2 \
+                                             - alpha[2]/dmu) + sigt*V
+                
+            # source terms
+            b0 = (sigs*Phi_0[iel]+q)/2.*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] \
+                 + (A[1]-A[0])/(2.*w[0])*alpha[0]*B_minus(mu_half[0])*psi_mu[iel]
+            b1 = (sigs*Phi_0[iel]+q)/2.*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1] \
+                 + (A[1]-A[0])/(2.*w[0])*alpha[0]*B_plus(mu_half[0])*psi_mu[iel]
                                                            
             # calculate Gauss point angular fluxes
             psi_minus = (a11*b0 - a01*b1)/(a00*a11 - a10*a01)
@@ -277,11 +258,7 @@ class Solve:
             # update ingoing fluxes
             psi_x[0] = 2*psi_minus - psi_x[0]
             psi_x[1] = 2*psi_plus  - psi_x[1]
-            if (n_mu == 0):
-                psi_mu[iel] = psi_mu[iel]*B_S(mu_half[1]) + psi_minus*B_minus(mu_half[1]) \
-                                           + psi_plus*B_plus(mu_half[1])
-            else:
-                psi_mu[iel] = psi_minus*B_minus(mu_half[1]) + psi_plus*B_plus(mu_half[1])
+            psi_mu[iel] = psi_minus*B_minus(mu_half[1]) + psi_plus*B_plus(mu_half[1])
                           
         # positive-mu sweep
         if (mu[0] > 0):
@@ -318,7 +295,7 @@ class Solve:
         bsource *= self.mesh.A[-1]
         # balance parameter
         bal = np.abs(source + bsource - (absorp + leak)) / (source + bsource)
-        return bal
+        return bal, leak
     
     
     # plot solution
@@ -339,7 +316,70 @@ class Solve:
                 plt.xlabel("r (cm)")
                 plt.ylabel("Angular Flux")
         
+    
+    # exact solution function
+    def exact(self, N_dir, plot=True, error=False):
+        # quadrature set
+        mu_,w_ = np.polynomial.legendre.leggauss(N_dir)
         
+        # exact solution
+        Phi_exact = np.zeros(self.mesh.I)
+        
+        if plot == True:
+            Phi_plus       = np.zeros(self.mesh.I)
+            Phi_plus_exact = np.zeros(self.mesh.I)
+            
+            Phi_minus       = np.zeros(self.mesh.I)
+            Phi_minus_exact = np.zeros(self.mesh.I)
+        
+        # loop over cells
+        for iel in range(self.mesh.I):
+            # cell properties
+            r  = self.mesh.r[iel]
+            r0 = self.mesh.R[-1]
+            siga = self.matprops["sigt"][0]
+            
+            # loop over directions
+            for n in range(N_dir):
+                # direction properties
+                mu = mu_[n]
+                w  = w_[n]
+                theta1 = np.pi - np.arccos(mu)
+                
+                # distance
+                d = np.sqrt(r**2 + r0**2 - 2.*r*r0*np.cos(np.pi - \
+                            np.arcsin(r/r0*np.sin(theta1)) - theta1))
+                    
+                # quadrature integration
+                psi = self.bc["value"]/2.*np.exp(-siga*d)
+                Phi_exact[iel] += psi*w
+                
+                if plot == True:
+                    if mu < 0.:
+                        Phi_minus[iel] += self.psi[n,iel]*self.quad.w[n]
+                        Phi_plus_exact[iel] += psi*w
+                    else:
+                        Phi_plus[iel] += self.psi[n,iel]*self.quad.w[n]
+                        Phi_minus_exact[iel] += psi*w
+                    
+        # plot error
+        if plot == True:
+            plt.figure()
+            Phi_err = np.abs(Phi_exact - self.Phi) / Phi_exact
+            plt.plot(self.mesh.r, Phi_err, 'k')
+            
+            plt.figure()
+            Phi_err = np.abs(Phi_plus_exact - Phi_plus) / Phi_plus_exact
+            plt.plot(self.mesh.r, Phi_err)
+            
+            plt.figure()
+            Phi_err = np.abs(Phi_minus_exact - Phi_minus) / Phi_minus_exact
+            plt.plot(self.mesh.r, Phi_err)
+              
+        # return exact solution
+        if error == True:
+            return Phi_exact
+
 
 """
 Radius:
@@ -374,18 +414,113 @@ for each material region); Below, the material properties are given as matprops
 """
 
         
-    
-R = np.array([1.])
-I_reg = np.array([40])
-N_dir = 8
 
-bc = {"type":"isotropic","value":1.}
+plot, error = False, False
+exact, leak = False, False
+
+if plot == True:
+    R = np.array([1.])
+    I_reg = np.array([1000])
+    N_dir = 32
+    
+    bc = {"type":"isotropic","value":1.}
+    
+    matprops = {"sigt":np.array([1.0]),
+                "sigs":np.array([0.0]),
+                   "q":np.array([0.0])}
+    
+    sol = Solve(R, I_reg, N_dir, bc, matprops, do_angular=True)
+    sol.solve()
+    sol.plot()
+    #sol.angular()
+    
+    if exact == True:
+        sol.exact(N_dir)
+
+if error == True:
+    if exact == False:
+        R = np.array([1.])
+        I_reg = np.array([1000])
+        N_dir = 16
+        
+        bc = {"type":"isotropic","value":0.}
+        
+        matprops = {"sigt":np.array([1.0]),
+                    "sigs":np.array([0.0]),
+                       "q":np.array([1.0])}
+        
+        sol1 = Solve(R, I_reg, N_dir, bc, matprops, do_angular=False)
+        sol1.solve()
+        
+        sol2 = Solve(R, I_reg, 2*N_dir, bc, matprops, do_angular=False)
+        sol2.solve()
+        
+        sol3 = Solve(R, I_reg, 4*N_dir, bc, matprops, do_angular=False)
+        sol3.solve()
+        
+        order = np.linalg.norm(sol1.Phi - sol2.Phi) / np.linalg.norm(sol2.Phi - sol3.Phi)
+        print()
+        print(order)
+        
+    if exact == True:
+        if leak == False:
+            R = np.array([1.])
+            I_reg = np.array([10000])
+            N_dir = 128
+            
+            bc = {"type":"isotropic","value":1.}
+            
+            matprops = {"sigt":np.array([1.0]),
+                        "sigs":np.array([0.0]),
+                           "q":np.array([0.0])}
+            
+            sol1 = Solve(R, I_reg, N_dir, bc, matprops, do_angular=False)
+            sol1.solve()
+            
+            sol2 = Solve(R, I_reg, 2*N_dir, bc, matprops, do_angular=True)
+            sol2.solve()
+            
+            Phi = sol2.exact(1024, plot=False, error=True)
+            
+            order = np.linalg.norm(sol1.Phi - Phi) / np.linalg.norm(sol2.Phi - Phi)
+            print()
+            print(order)
+            
+        if leak == True:
+            R = np.array([1.])
+            I_reg = np.array([10000])
+            N_dir = 128
+            
+            bc = {"type":"isotropic","value":0.}
+            
+            matprops = {"sigt":np.array([1.0]),
+                        "sigs":np.array([0.0]),
+                           "q":np.array([1.0])}
+            
+            sol1 = Solve(R, I_reg, N_dir, bc, matprops, do_angular=False)
+            leak1 = sol1.solve()
+            
+            sol2 = Solve(R, I_reg, 2*N_dir, bc, matprops, do_angular=False)
+            leak2 = sol2.solve()
+            
+            sol3 = Solve(R, I_reg, 1024, bc, matprops)
+            leak = sol3.solve()
+            
+            order = np.abs(leak1 - leak) / np.abs(leak2 - leak)
+            print()
+            print(order)
+
+        
+R = np.array([1.])
+I_reg = np.array([100000])
+
+bc = {"type":"isotropic","value":0.}
 
 matprops = {"sigt":np.array([1.0]),
             "sigs":np.array([0.0]),
-               "q":np.array([0.0])}
+               "q":np.array([1.0])}
 
-sol = Solve(R, I_reg, N_dir, bc, matprops, do_angular=True)
-sol.solve()
-sol.plot()
-sol.angular()
+sol = Solve(R, I_reg, 10000, bc, matprops)
+leak = sol.solve()
+print()
+print(leak)

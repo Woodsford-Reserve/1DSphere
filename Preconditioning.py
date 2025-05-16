@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat May 11 11:38:28 2024
+Created on Mon Feb 12 20:29:37 2024
 
 @author: woods
 """
@@ -80,7 +80,8 @@ class Quad:
         
 # solver class
 class Solve:
-    def __init__(self, R, I_reg, quad_dict, bc_dict, matprops, do_quadratic=True, do_angular=False):
+    def __init__(self, R, I_reg, quad_dict, bc_dict, matprops, do_quadratic=True, 
+                 do_angular=False, tol=1e-6):
         nmats = len(matprops["sigt"])
         matIDs = np.arange(nmats)
         
@@ -90,11 +91,14 @@ class Solve:
         self.bc = bc_dict
         self.matprops = matprops
         
-        # quadratice continuous in first angular cell
+        # do quadratic continuous in first cell
         self.do_quadratic = do_quadratic
         
         # plot angular fluxes
         self.do_angular = do_angular
+        
+        # tolerance
+        self.tol = tol
         
         # check for void
         self.do_balance = True 
@@ -109,18 +113,25 @@ class Solve:
         if self.do_angular == True:
             self.psi = np.zeros((self.quad.N_dir,self.mesh.I))
         
-        # boundary flux
+        # isotropic flux boundary condition
         self.psi_bound = np.zeros(self.quad.N_dir)
-        self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.
+        if (self.bc["type"] == "isotropic"):
+            self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"]/2.
+        # anisotropic flux boundary condition
+        if (self.bc["type"] == "anisotropic"):
+            self.psi_bound[:int(self.quad.N_dir/2)] = self.bc["value"][:]
         
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
         
+        # preconditioning iterations
+        self.iter = np.zeros((self.quad.N_cells,self.mesh.I))
+        self.rho  = np.zeros((self.quad.N_cells,self.mesh.I))
+        
         # source iteration
-        err, tol = 1, 1e-6
-        it = 0
+        err,it = 1.,0
         print("\nIteration :: Error")
-        while (err > tol):
+        while (err > self.tol):
             it += 1
             # scalar flux iterate
             Phi_1 = np.zeros(self.mesh.I)
@@ -150,19 +161,26 @@ class Solve:
         
         # balance parameter
         if self.do_balance:
-            bal = self.balance()
+            bal, leak = self.balance()
             print("Balance: "+str(bal))
+            
+            return leak
     
 
     # starting direction
     def start(self, Phi):
         # starting direction ingoing flux
-        mu0, mu1 = self.quad.mu[0], self.quad.mu[1]
-        psi_x = self.psi_bound[0]*(mu1 + 1)/(mu1 - mu0) \
-              - self.psi_bound[1]*(mu0 + 1)/(mu1 - mu0)
+        if (self.quad.N_dir == 2):
+            psi_x = self.psi_bound[0]
+        else:
+            mu0, mu1 = self.quad.mu[0], self.quad.mu[1]
+            psi_x = self.psi_bound[0]*(mu1 + 1)/(mu1 - mu0) - \
+                    self.psi_bound[1]*(mu0 + 1)/(mu1 - mu0)
+            if (psi_x < 0):
+                psi_x = 0
             
         # starting direction sweep
-        psi_mu = np.zeros(self.mesh.I)
+        psi_mu = np.zeros(self.mesh.I) 
         for iel in range(self.mesh.I-1,-1,-1):
             # cell properties
             dr    = self.mesh.dr[iel]
@@ -189,7 +207,7 @@ class Solve:
         mu      = self.quad.mu[2*n_mu:2*n_mu+2]
         w       = self.quad.w[2*n_mu:2*n_mu+2]
         alpha   = self.quad.alpha[2*n_mu:2*n_mu+3]
-        mu_half = self.quad.mu_half[2*n_mu:2*n_mu+3]
+        mu_half = self.quad.mu_half[2*n_mu+2]
 
         # basis functions
         if self.do_quadratic and (n_mu == 0):
@@ -197,21 +215,9 @@ class Solve:
             B_minus = lambda u: ((u+1)*(u-mu[1]))/((mu[0]+1)*(mu[0]-mu[1]))
             B_plus  = lambda u: ((u+1)*(u-mu[0]))/((mu[1]+1)*(mu[1]-mu[0]))
         else:
+            B_S     = lambda u: 0.
             B_minus = lambda u: (mu[1]-u)/(mu[1]-mu[0])
             B_plus  = lambda u: (u-mu[0])/(mu[1]-mu[0])
-            B_S     = lambda u: 0.
-        
-        # basis function zeroth moments
-        mm = self.integrate(mu_half[0], mu_half[1], B_minus) / w[0]
-        mp = self.integrate(mu_half[0], mu_half[1], B_plus)  / w[0]
-        pm = self.integrate(mu_half[1], mu_half[2], B_minus) / w[1]
-        pp = self.integrate(mu_half[1], mu_half[2], B_plus)  / w[1]
-        
-        # basis function first moments
-        mu_mm = self.integrate(mu_half[0], mu_half[1], lambda u: u*B_minus(u)) / w[0]
-        mu_mp = self.integrate(mu_half[0], mu_half[1], lambda u: u*B_plus(u))  / w[0]
-        mu_pm = self.integrate(mu_half[1], mu_half[2], lambda u: u*B_minus(u)) / w[1]
-        mu_pp = self.integrate(mu_half[1], mu_half[2], lambda u: u*B_plus(u))  / w[1]
         
         # negative-mu sweeps
         if (mu[0] < 0):
@@ -244,26 +250,52 @@ class Solve:
             sigt  = self.matprops["sigt"][matID]
             sigs  = self.matprops["sigs"][matID]
             q     = self.matprops["q"][matID]
-
-            # coefficients
-            a00 = 2*np.abs(mu_mm)*A_out + alpha[1]*(A[1]-A[0])/(2*w[0])*B_minus(mu_half[1]) + mm*sigt*V
-            a01 = 2*np.abs(mu_mp)*A_out + alpha[1]*(A[1]-A[0])/(2*w[0])*B_plus(mu_half[1]) + mp*sigt*V
-            a10 = 2*np.abs(mu_pm)*A_out + (alpha[2]*B_minus(mu_half[2]) - alpha[1]*B_minus(mu_half[1])) \
-                                          *(A[1]-A[0])/(2*w[1]) + pm*sigt*V
-            a11 = 2*np.abs(mu_pp)*A_out + (alpha[2]*B_plus(mu_half[2]) - alpha[1]*B_plus(mu_half[1])) \
-                                          *(A[1]-A[0])/(2*w[1]) + pp*sigt*V
-                                  
-            # source terms
-            b0 = (sigs*Phi_0[iel]+q)/2*V + (A[1]+A[0])*(np.abs(mu_mm)*psi_x[0]+np.abs(mu_mp)*psi_x[1]) \
-                            - alpha[1]*(A[1]-A[0])/(2*w[0])*B_S(mu_half[1])*psi_mu[iel] \
-                                  + alpha[0]*(A[1]-A[0])/(2*w[0])*psi_mu[iel]
-            b1 = (sigs*Phi_0[iel]+q)/2*V + (A[1]+A[0])*(np.abs(mu_pm)*psi_x[0]+np.abs(mu_pp)*psi_x[1]) \
-                    - (alpha[2]*B_S(mu_half[2]) - alpha[1]*B_S(mu_half[1]))*(A[1]-A[0])/(2*w[1]) \
-                                                   *psi_mu[iel]
             
-            # calculate Gauss point angular fluxes
-            psi_minus = (a11*b0 - a01*b1)/(a00*a11 - a10*a01)
-            psi_plus  = (a00*b1 - a10*b0)/(a00*a11 - a10*a01)
+            # angular cell midpoint
+            mu_1 = 0.5*(mu[0]+mu[1])            
+            
+            # preconditioning
+            err,err0,err1,it = 1.,0.,0.,0
+            psi_minus0,psi_plus0 = psi_x[0],psi_x[1]
+            #psi_minus0,psi_plus0 = 0.,0.
+            
+            # iterate
+            while (err > 0.1*self.tol):
+                it += 1
+                
+                # preconditioned mu^(-) calculation
+                psi_minus1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[0])*(A[1]+A[0])*psi_x[0] \
+                           + (A[1]-A[0])/(2*w[0])*(alpha[1]*((1. - B_minus(mu_1))*psi_minus0 \
+                                    - B_plus(mu_1)*psi_plus0 - B_S(mu_1)*psi_mu[iel]) \
+                                                + alpha[0]*psi_mu[iel])   
+                psi_minus1 /= (2.*np.abs(mu[0])*A_out + alpha[1]*(A[1]-A[0])/(2*w[0]) + sigt*V)
+                
+                # direct mu^(+) solve
+                psi_plus1 = (sigs*Phi_0[iel]+q)/2*V + np.abs(mu[1])*(A[1]+A[0])*psi_x[1] \
+                          - (A[1]-A[0])/(2*w[1])*((alpha[2]*B_minus(mu_half) - alpha[1]*B_minus(mu_1))*psi_minus1 \
+                                                + (alpha[2]*B_S(mu_half) - alpha[1]*B_S(mu_1))*psi_mu[iel])
+                psi_plus1 /= (2.*np.abs(mu[1])*A_out + sigt*V \
+                           + (A[1]-A[0])/(2*w[1])*(alpha[2]*B_plus(mu_half) - alpha[1]*B_plus(mu_1)))
+                    
+                # relative L2 norm of difference between iterates
+                err = np.sqrt((psi_minus1 - psi_minus0)**2 + (psi_plus1 - psi_plus0)**2) \
+                                    / np.sqrt(psi_minus1**2 + psi_plus1**2)
+                          
+                # next iteration
+                psi_minus0 = psi_minus1
+                psi_plus0  = psi_plus1
+                err0 = err1
+                err1 = err
+              
+            # number of iterations
+            self.iter[n_mu,iel] = it 
+            if it != 1:
+                rho = err1/err0
+                self.rho[n_mu,iel]  = rho
+              
+            # converged preconditioned solution
+            psi_minus = psi_minus0
+            psi_plus  = psi_plus0
             
             # update angular flux
             if self.do_angular == True:
@@ -276,9 +308,9 @@ class Solve:
             # update ingoing fluxes
             psi_x[0] = 2*psi_minus - psi_x[0]
             psi_x[1] = 2*psi_plus  - psi_x[1]
-            psi_mu[iel] = psi_mu[iel]*B_S(mu_half[2]) + psi_minus*B_minus(mu_half[2]) \
-                                      + psi_plus*B_plus(mu_half[2]) 
-        
+            psi_mu[iel] = psi_mu[iel]*B_S(mu_half) + psi_minus*B_minus(mu_half) \
+                                     + psi_plus*B_plus(mu_half)
+                                     
         # positive-mu sweep
         if (mu[0] > 0):
             # boundary flux
@@ -286,17 +318,6 @@ class Solve:
             
         # return angular fluxes
         return Phi_1, psi_mu
-    
-    
-    # integration function
-    def integrate(self, a, b, f):
-         # quadrature points
-         x1 = (b-a)/2.*(-1./np.sqrt(3.)) + (b+a)/2.
-         x2 = (b-a)/2.*( 1./np.sqrt(3.)) + (b+a)/2.
-         w1 = w2 = (b-a)/2.
-         # return integrals
-         integral = f(x1)*w1 + f(x2)*w2
-         return integral
     
     
     # calculate balance parameter
@@ -325,7 +346,7 @@ class Solve:
         bsource *= self.mesh.A[-1]
         # balance parameter
         bal = np.abs(source + bsource - (absorp + leak)) / (source + bsource)
-        return bal
+        return bal, leak
     
     
     # plot solution
@@ -345,66 +366,160 @@ class Solve:
                 plt.plot(self.mesh.r, self.psi[nd,:], 'k--')
                 plt.xlabel("r (cm)")
                 plt.ylabel("Angular Flux")
+                
+                
+    # exact solution function
+    def exact(self, N_dir, plot=True, error=False):
+        # quadrature set
+        mu_,w_ = np.polynomial.legendre.leggauss(N_dir)
+        
+        # exact solution
+        Phi_exact = np.zeros(self.mesh.I)
+        
+        if plot == True:
+            Phi_plus       = np.zeros(self.mesh.I)
+            Phi_plus_exact = np.zeros(self.mesh.I)
+            
+            Phi_minus       = np.zeros(self.mesh.I)
+            Phi_minus_exact = np.zeros(self.mesh.I)
+        
+        # loop over cells
+        for iel in range(self.mesh.I):
+            # cell properties
+            r  = self.mesh.r[iel]
+            r0 = self.mesh.R[-1]
+            siga = self.matprops["sigt"][0]
+            
+            # loop over directions
+            for n in range(N_dir):
+                # direction properties
+                mu = mu_[n]
+                w  = w_[n]
+                theta1 = np.pi - np.arccos(mu)
+                
+                # distance
+                d = np.sqrt(r**2 + r0**2 - 2.*r*r0*np.cos(np.pi - \
+                            np.arcsin(r/r0*np.sin(theta1)) - theta1))
+                    
+                # quadrature integration
+                psi = self.bc["value"]/2.*np.exp(-siga*d)
+                Phi_exact[iel] += psi*w
+                
+                if plot == True:
+                    if mu < 0.:
+                        Phi_minus[iel] += self.psi[n,iel]*self.quad.w[n]
+                        Phi_plus_exact[iel] += psi*w
+                    else:
+                        Phi_plus[iel] += self.psi[n,iel]*self.quad.w[n]
+                        Phi_minus_exact[iel] += psi*w
+                    
+        # plot error
+        if plot == True:
+            plt.figure()
+            """
+            Phi_err = np.abs(Phi_exact - self.Phi) / Phi_exact
+            plt.plot(self.mesh.r, Phi_err, 'k')
+            
+            plt.figure()
+            Phi_err = np.abs(Phi_plus_exact - Phi_plus) / Phi_plus_exact
+            plt.plot(self.mesh.r, Phi_err)
+            
+            plt.figure()
+            Phi_err = np.abs(Phi_minus_exact - Phi_minus) / Phi_minus_exact
+            plt.plot(self.mesh.r, Phi_err)
+            """
+            plt.plot(self.mesh.r, Phi_exact, 'k')
+            plt.plot(self.mesh.r, self.Phi, 'r--')
+              
+        # return exact solution
+        if error == True:
+            return Phi_exact
         
         
-    
-plot, error = True, False
 
-alpha = "exact"
-#alpha = "approximate"
+"""
+Radius:
+-------
+The outer radius of each material region is provided as a one-dimensional numpy array;
+Below, this numpy array is R
 
-if plot == True:
-    R = np.array([1.])
-    I_reg = np.array([100])
-    N_dir = 128
-    
-    bc = {"type":"isotropic","value":1.}
-    
-    quad_dict = {"directions":N_dir,
-                 "quadrature":"gauss",
-                      "alpha":alpha}
-    
-    matprops = {"sigt":np.array([1.0]),
-                "sigs":np.array([0.0]),
-                   "q":np.array([0.0])}
-    
-    sol = Solve(R, I_reg, quad_dict, bc, matprops, do_quadratic=True, do_angular=True)
-    sol.solve()
-    sol.plot()
-    #sol.angular()
+Cells per region:
+-----------------
+Similarly, the number of cells in each region is provided as a one-dimensional numpy
+array; Below, this numpy array is I_reg
 
-if error == True:
-    R = np.array([1.])
-    I_reg = np.array([10000])
-    N_dir = 512
+Boundary conditions:
+--------------------
+The boundary conditions are provided as a library, with the type given as "type" (this
+will be either "isotropic" or "anisotropic") and the source given as "value" (this will 
+either be a float if the "type" is "isotropic" or a one-dimensional numpy array of size
+N_dir/2 if the "type" is "anisotropic"); Below, the boundary condition library is bc
+
+Quadrature:
+-----------
+The quadrature rule specifications are provided as a library, with the number of directions
+given as "directions" (this will be an even integer), the quadrature rule given as 
+"quadrature" (this will be either "midpoint" for a midpoint rule or "gauss" for local Gauss
+S2), and the formula for the alpha coefficients specified by "alpha" (this will be either 
+"approximate" for the approximate recursive formula or "exact" for the exact formula (1-mu^2))
+                                                                              
+Material properties:
+--------------------
+The material properties are given as a library with the total cross section given as 
+"sigt" (this will be a numpy array of the sigt for each material region), the scattering
+cross section given as "sigs" (this will be a numpy array of the sigt for each material 
+region), and the volumetric sources given as "q" (this will be a numpy array of the sigt 
+for each material region); Below, the material properties are given as matprops
+"""
+
+
+
+R = np.array([1.])
+I_reg = np.array([100])
+N_dir = 512
+
+bc = {"type":"isotropic","value":1.}
+
+quad_dict = {"directions":N_dir,
+             "quadrature":"gauss",
+                  "alpha":"approximate"}
+
+matprops = {"sigt":np.array([1.]),
+            "sigs":np.array([0.0]),
+               "q":np.array([0.0])}
+
+sol = Solve(R, I_reg, quad_dict, bc, matprops, do_quadratic=False, do_angular=True, tol=1e-8)
+sol.solve()
+sol.plot()
+#sol.angular()
+
+#sol.exact(N_dir)
+        
     
-    bc = {"type":"isotropic","value":0.}
     
-    matprops = {"sigt":np.array([1.0]),
-                "sigs":np.array([0.0]),
-                   "q":np.array([1.0])}
+# spectral radii
+plt.figure(100) 
+plt.title("Predicted cell-wise spectral radius as a function of r near \u03bc = 0")
+
+# # left of mu = 0
+# n = int(sol.quad.N_cells/2) - 1
+# plt.plot(sol.mesh.r, sol.rho[n,:], 'r--', label="Left of \u03bc = 0")
+
+# # right of mu = 0
+# plt.plot(sol.mesh.r, sol.rho[n+1,:], 'b--', label="Right of \u03bc = 0")
     
-    quad_dict1 = {"directions":N_dir,
-                  "quadrature":"gauss",
-                       "alpha":alpha}
+# predicted value
+rho = np.zeros(sol.mesh.I)
+
+w = sol.quad.w[0]
+for i in range(sol.mesh.I):
+    A     = sol.mesh.A[i:i+2] 
+    V     = sol.mesh.V[i]
+    matID = sol.mesh.matID[i]
+    sigt  = sol.matprops["sigt"][matID]
     
-    quad_dict2 = {"directions":2*N_dir,
-                  "quadrature":"gauss",
-                       "alpha":alpha}
+    alpha = 4.*w*sigt*V/(A[1]-A[0])
+    rho[i] = alpha / ((alpha + 2.)*(alpha + np.sqrt(3.)))
     
-    quad_dict3 = {"directions":4*N_dir,
-                  "quadrature":"gauss",
-                       "alpha":alpha}
-    
-    sol1 = Solve(R, I_reg, quad_dict1, bc, matprops, do_angular=False)
-    sol1.solve()
-    
-    sol2 = Solve(R, I_reg, quad_dict2, bc, matprops, do_angular=False)
-    sol2.solve()
-    
-    sol3 = Solve(R, I_reg, quad_dict3, bc, matprops, do_angular=False)
-    sol3.solve()
-    
-    order = np.linalg.norm(sol1.Phi - sol2.Phi) / np.linalg.norm(sol2.Phi - sol3.Phi)
-    print()
-    print(order)
+plt.plot(sol.mesh.r, rho, 'k--', label="Predicted")
+#plt.legend()
