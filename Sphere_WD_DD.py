@@ -115,7 +115,20 @@ class Solve:
                 self.psi_bound[i] = getPsi(self.quad.mu[i],self.bc)
                 if self.psi_bound[i] < 0:
                     self.psi_bound[i] = 0
-
+        
+        if self.bc["type"] == "anisotropic5":
+            self.psi_bound[0] = 1.
+            self.psi_bound[1:] = 0.
+        
+        # Normalizes to a Unit Net Current
+        sum1 = 0
+        for i in range(int(self.quad.N_dir / 2)):
+            sum1 += self.psi_bound[i] * self.quad.w[i] * abs(self.quad.mu[i])
+        for i in range(int(self.quad.N_dir / 2)):
+            self.psi_bound[i] = self.psi_bound[i] / sum1
+        self.current_norm = sum1
+            
+        
         # initial guess
         Phi_0, Phi_m1 = np.zeros(self.mesh.I), np.zeros(self.mesh.I)
         
@@ -282,8 +295,7 @@ class Solve:
         bal = np.abs(source + bsource - (absorp + leak)) / (source + bsource)
         return bal
 
-    def AnalyticalSolve(self, n):
-        local = False
+    def AnalyticalSolve(self, n, local):
         N_cells = int(n / 2)
         
         # mu-cell boundaries
@@ -316,6 +328,50 @@ class Solve:
         self.Apsi = Apsi
         self.Aphi = Aphi
     
+    # Calculates a global L2 error as described in the paper
+    def globalL2Error(self):
+        err = np.zeros((self.quad.N_dir,self.mesh.I))
+        for i in range(self.mesh.I):
+            for m in range(self.quad.N_dir):
+                err[m][i] = (self.Apsi[m][i] - self.psi[m][i]) ** 2 * self.quad.w[m]
+        self.err = err
+        self.globalErr = np.sqrt(np.sum(err) / self.mesh.I)
+    
+    # Calculates a relative L2 error as described in the paper
+    def relL2Error(self):
+        err = np.zeros(self.mesh.I)
+        for i in range(self.mesh.I):
+            num = 0
+            denom = 0
+            for m in range(self.quad.N_dir):
+                num += (self.Apsi[m][i] - self.psi[m][i]) ** 2 * self.quad.w[m]
+                denom += (self.Apsi[m][i]) ** 2 * self.quad.w[m]
+            err[i] = np.sqrt(num / denom)
+        self.rel_err = err
+    
+    # Calculates a relative L2 error as described in the paper for the negative mus
+    def relL2Error_inc(self):
+        err = np.zeros(self.mesh.I)
+        for i in range(self.mesh.I):
+            num = 0
+            denom = 0
+            for m in range(int(self.quad.N_dir / 2)):
+                num += (self.Apsi[m][i] - self.psi[m][i]) ** 2 * self.quad.w[m]
+                denom += (self.Apsi[m][i]) ** 2 * self.quad.w[m]
+            err[i] = np.sqrt(num / denom)
+        self.rel_err_inc = err
+    
+    # Calculates a relative L2 error as described in the paper for the positive mus
+    def relL2Error_out(self):
+        err = np.zeros(self.mesh.I)
+        for i in range(self.mesh.I):
+            num = 0
+            denom = 0
+            for m in range(int(self.quad.N_dir / 2), self.quad.N_dir):
+                num += (self.Apsi[m][i] - self.psi[m][i]) ** 2 * self.quad.w[m]
+                denom += (self.Apsi[m][i]) ** 2 * self.quad.w[m]
+            err[i] = np.sqrt(num / denom)
+        self.rel_err_out = err
     
     # plot solution
     def plot(self):
@@ -358,7 +414,7 @@ def getPsi(mu, bc):
     value = bc["value"]
     type1 = boundType[:-1]
     if boundType == "isotropic0":
-        return value / 2
+        return 2.
     type2 = int(boundType[-1:])
     if type2 == 1:
         norm = abs(1 / (-2 + 3/2 * value))
@@ -462,30 +518,30 @@ def inputVals():
 
 
 def output(solved):
-    with open("output_phi.csv", "wb") as a:
+    with open("output_Phi.csv", "wb") as a:
         np.savetxt(a, solved.Phi, delimiter=",")
     if solved.do_angular:
         with open("output_psi.csv", "wb") as a:
             np.savetxt(a, np.transpose(solved.psi), delimiter=",")
 
-def L2norm(sol, sol2, sol4):
-    L2norm1 = np.sqrt(np.sum((sol.Phi - sol2.Phi) ** 2))
-    L2norm2 = np.sqrt(np.sum((sol2.Phi - sol4.Phi) ** 2))
-    print(L2norm1 / L2norm2)
-    return L2norm1 , L2norm2
+def output_Asol(solved):
+    with open("output_Aphi.csv", "wb") as a:
+        np.savetxt(a, solved.Aphi, delimiter=",")
+    if solved.do_angular:
+        with open("output_Apsi.csv", "wb") as a:
+            np.savetxt(a, np.transpose(solved.Apsi), delimiter=",")
 
-def L2norm2(sol, sol2):
-    L2norm1 = np.sqrt(np.sum((sol.Phi - sol.Aphi) ** 2))
-    L2norm2 = np.sqrt(np.sum((sol2.Phi - sol.Aphi) ** 2))
-    print(L2norm1 / L2norm2)
-    return L2norm1 , L2norm2
+def output_rel_err(solved):
+    with open("output_rel_err.csv", "wb") as a:
+        np.savetxt(a, solved.rel_err, delimiter=",")
 
-def L2Anorm(Asol, sol1, sol2):
-    L2norm1 = np.sqrt(np.sum((sol1.Phi - Asol.Aphi) ** 2))
-    L2norm2 = np.sqrt(np.sum((sol2.Phi - Asol.Aphi) ** 2))
-    print(L2norm1)
-    print(L2norm2)
-    return L2norm1 , L2norm2
+def output_rel_err_inc(solved):
+    with open("output_rel_err_inc.csv", "wb") as a:
+        np.savetxt(a, solved.rel_err_inc, delimiter=",")
+
+def output_rel_err_out(solved):
+    with open("output_rel_err_out.csv", "wb") as a:
+        np.savetxt(a, solved.rel_err_out, delimiter=",")
 
 R, I_reg, N_dir, bc, matprops, name, working = inputVals()
 
@@ -493,73 +549,23 @@ L2 = False
 everything = False
 
 if working:
-    sol8 = Solve(R, I_reg, N_dir, bc, matprops, False)
+    sol8 = Solve(R, I_reg, N_dir, bc, matprops, True)
     sol8.solve()
-    sol8.AnalyticalSolve(1000)
+    sol8.AnalyticalSolve(N_dir, local = True)
+    
     sol8.plot()
-    #sol.plotErr()
-    
-    if everything:
-        sol16 = Solve(R, I_reg, N_dir * 2, bc, matprops, False)
-        sol16.solve()
-        sol32 = Solve(R, I_reg, N_dir * 4, bc, matprops, False)
-        sol32.solve()
-        sol64 = Solve(R, I_reg, N_dir * 8, bc, matprops, False)
-        sol64.solve()
-        sol128 = Solve(R, I_reg, N_dir * 16, bc, matprops, False)
-        sol128.solve()
-        sol256 = Solve(R, I_reg, N_dir * 32, bc, matprops, False)
-        sol256.solve()
-        sol512 = Solve(R, I_reg, N_dir * 64, bc, matprops, False)
-        sol512.solve()
-        sol1024 = Solve(R, I_reg, N_dir * 128, bc, matprops, False)
-        sol1024.solve()
-        sol2048 = Solve(R, I_reg, N_dir * 256, bc, matprops, False)
-        sol2048.solve()
-        '''
-        temp1, temp2 = L2norm(sol8, sol16, sol32)
-        temp1, temp2 = L2norm(sol16, sol32, sol64)
-        temp1, temp2 = L2norm(sol32, sol64, sol128)
-        temp1, temp2 = L2norm(sol64, sol128, sol256)
-        temp1, temp2 = L2norm(sol128, sol256, sol512)
-        '''
-        (L2Anorm(sol8, sol8, sol16))
-        (L2Anorm(sol8, sol16, sol32))
-        (L2Anorm(sol8, sol32, sol64))
-        (L2Anorm(sol8, sol64, sol128))
-        (L2Anorm(sol8, sol128, sol256))
-        (L2Anorm(sol8, sol256, sol512))
-        (L2Anorm(sol8, sol512, sol1024))
-        (L2Anorm(sol8, sol1024, sol2048))
-    if L2:
-        sol2 = Solve(R, I_reg, 2 * N_dir, bc, matprops, False)
-        # sol4 = Solve(R, I_reg, 4 * N_dir, bc, matprops, False)
-        sol2.solve()
-        # sol4.solve()
-        # num, denom = L2norm(sol, sol2, sol4)
-        # sol2.AnalyticalSolve(1000)
-        # sol4.AnalyticalSolve(1000)
-        # r10, r11 = sol2.plotErr()
-        # r20, r21 = sol4.plotErr()
-        L21, L22 = L2norm2(sol, sol2)
-        '''
-        diff1 = sol.leak - sol2.leak
-        diff2 = sol2.leak - sol4.leak
-        leak1 = sol.leak
-        leak2 = sol2.leak
-        leak4 = sol4.leak
-        print(diff1 / diff2)
-        '''
-    '''
-    sol.AnalyticalSolve(1000)
-
-    sol.plot()
-    r00, r01 = sol.plotErr()
-    print(r00 / r10)
-    print(r10 / r20)
-    
-    sol.angular()
-    '''
+    sol8.globalL2Error()
+    sol8.relL2Error()
+    sol8.relL2Error_inc()
+    sol8.relL2Error_out()
     output(sol8)
+    output_rel_err(sol8)
+    output_rel_err_inc(sol8)
+    output_rel_err_out(sol8)
+    print("Global Error:", sol8.globalErr)
+
+
 elif R == 1:
     print("Please have N_dir be an even integer.")
+    
+plt.show()

@@ -217,12 +217,12 @@ class Solve:
 
         
     # sweep function
-    def sweep(self, n_mu, psi_mu, Phi_0, Phi_1, it):
+    def angular_sweep(self, n_mu, psi_mu, Phi_0, Phi_1, it):
         err = 1
         tol = 1e-6
         
         
-        quadratic = False
+        quadratic = self.quadratic
         # direction quantities
         mu      = self.quad.mu[2*n_mu:2*n_mu+2]
         w       = self.quad.w[2*n_mu:2*n_mu+2]
@@ -381,23 +381,11 @@ class Solve:
                 
                 psi = np.copy(self.psi)
                 psi_01 = np.copy(self.psi_01)
-                
-                
-        
-        
-                
-            
-                
-            
-                
-                
+
             
             err = np.max(np.sqrt((psi_01[2*n_mu,:] - psi[2*n_mu,:])**2 + (psi_01[2*n_mu+1,:] - psi[2*n_mu+1,:]) ** 2) \
                     /(np.sqrt(psi[2*n_mu,:]**2 + psi[2*n_mu+1,:]**2)))
-            #print(np.argmax(np.sqrt((psi_01[2*n_mu,:] - psi[2*n_mu,:])**2 + (psi_01[2*n_mu+1,:] - psi[2*n_mu+1,:]) ** 2) \
-            #       /(np.sqrt(psi[2*n_mu,:]**2 + psi[2*n_mu+1,:]**2))))
 
-            # err = tol * 0.9
         self.spatial_it[it - 1, n_mu] = spatial_it   
         
         
