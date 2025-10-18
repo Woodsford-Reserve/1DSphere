@@ -970,22 +970,22 @@ def inputVals():
 
 
 def output(solved):
-    with open("output_phi.csv", "wb") as a:
+    with open("output\\output_phi.csv", "wb") as a:
         np.savetxt(a, solved.Phi, delimiter=",")
     if solved.do_angular:
-        with open("output_psi.csv", "wb") as a:
+        with open("output\\output_psi.csv", "wb") as a:
             np.savetxt(a, np.transpose(solved.psi), delimiter=",")
 
 def output_rel_err(solved):
-    with open("output_rel_err.csv", "wb") as a:
+    with open("output\\output_rel_err.csv", "wb") as a:
         np.savetxt(a, solved.rel_err, delimiter=",")
 
 def output_rel_err_inc(solved):
-    with open("output_rel_err_inc.csv", "wb") as a:
+    with open("output\\output_rel_err_inc.csv", "wb") as a:
         np.savetxt(a, solved.rel_err_inc, delimiter=",")
 
 def output_rel_err_out(solved):
-    with open("output_rel_err_out.csv", "wb") as a:
+    with open("output\\output_rel_err_out.csv", "wb") as a:
         np.savetxt(a, solved.rel_err_out, delimiter=",")
 
 
