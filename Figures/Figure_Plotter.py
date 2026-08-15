@@ -17,11 +17,13 @@ def inputVals(name):
     
     return data_names, true_data
 
+
 def plotData(name, x_label, y_label, n):
     data_name, data = inputVals(name)
     plt.figure(n)
+    plot_types = ["-", "--", "-.", ":", (0, (6,3,3,3)), (0,(3,3,1,3))]
     for i in range(1,len(data[:,0])):
-        plt.plot(data[0], data[i], label=data_name[i])
+        plt.plot(data[0], data[i], ls=plot_types[i-1], label=data_name[i])
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.legend()
@@ -31,14 +33,20 @@ def plotData(name, x_label, y_label, n):
 def plotLogData(name, x_label, y_label, n):
     data_name, data = inputVals(name)
     plt.figure(n)
+    plot_types = ["-", "--", "-.", ":", (0, (6,3,3,3)), (0,(3,3,1,3))]
     for i in range(1,len(data[:,0])):
-        plt.semilogy(data[0], data[i], label=data_name[i])
+        plt.semilogy(data[0], data[i], linestyle=plot_types[i-1], label=data_name[i])
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.legend()
     n += 1
     return n
 
+
+
+    
+def plotHG(n):
+    return 0
 
 n = 0
 n = plotData("Fig_1.csv", "R", "Flux", n)
@@ -51,10 +59,14 @@ n = plotLogData("Fig_5a.csv", "R", "Relative Error", n)
 n = plotLogData("Fig_5b.csv", "R", "Relative Error", n)
 n = plotLogData("Fig_6a.csv", "R", "Relative Error", n)
 n = plotLogData("Fig_6b.csv", "R", "Relative Error", n)
+n = plotLogData("Fig_6c.csv", "R", "Relative Error", n)
+n = plotLogData("Fig_6d.csv", "R", "Relative Error", n)
 n = plotData("Fig_7.csv", "R", "Flux", n)
 n = plotData("Fig_8.csv", "R", "Flux", n)
 n = plotData("Fig_9.csv", "R", "Flux", n)
 n = plotData("Fig_10.csv", "R", "Flux", n)
+
+
 
 
 plt.show()

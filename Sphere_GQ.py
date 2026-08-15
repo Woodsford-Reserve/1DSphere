@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 
 
+
 # mesh class
 class Mesh:
     def __init__(self, matIDs, R, I_reg):
@@ -58,6 +59,14 @@ class Quad:
         self.mu = np.zeros((N_cells,2))
         self.mu[:,0] = self.w[:,0]*(-1./np.sqrt(3.)) + mu[:]
         self.mu[:,1] = self.w[:,1]*(1./np.sqrt(3.)) + mu[:]
+        
+        # local Gauss S(N/2 + 1) quadrature
+        temp_mu, w2 = np.polynomial.legendre.leggauss(N_cells + 1)
+        mu2 = np.zeros((N_cells, N_cells + 1))
+        for i in range(N_cells + 1):
+            mu2[:,i] = (1/N_cells)*temp_mu[i] + mu[:]
+        self.mu2 = mu2
+        self.w2 = w2 / N_cells
         
         # quadrature set
         self.mu = self.mu.flatten()
@@ -555,15 +564,6 @@ if working:
     sol8.AnalyticalSolve(N_dir, local = True)
     
     sol8.plot()
-    sol8.globalL2Error()
-    sol8.relL2Error()
-    sol8.relL2Error_inc()
-    sol8.relL2Error_out()
-    output(sol8)
-    output_rel_err(sol8)
-    output_rel_err_inc(sol8)
-    output_rel_err_out(sol8)
-    print("Global Error:", sol8.globalErr)
 
 
 elif R == 1:
